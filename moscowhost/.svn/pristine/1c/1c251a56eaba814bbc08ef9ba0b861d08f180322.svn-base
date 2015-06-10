@@ -1,0 +1,58 @@
+{% extends 'base_private.html' %}
+{% load i18n page_tags form_tags %}
+
+{% block content %}
+
+<h1 class="title">Пополнение счета QIWI</h1>
+
+{{ block.super }}
+
+{% if qiwi_form %}
+
+    <form method="POST" action="#">
+        <div class="form_django">
+           {% for field in qiwi_form %}
+                {% form_field field block %}
+            {% endfor %}
+            <div class="form-submit-right">
+                <input class="bt bt-blue2" type="submit" name="submit" value="Отправить" />
+            </div>
+        </div>
+    </form>
+    
+{% else %}
+
+    <div class="status status-success">
+        <i class="ico"></i>
+        <div class="status-i">
+            <p>Счёт удачно создан. Деньги автоматически зачислятся на Ваш аккаунт после оплаты счета в течении нескольких минут. Для оплаты счета пройдите по <a href="{{ payment_url }}" target="_blank">ссылке</a>.</p>
+        </div>
+    </div>
+
+	<table class="type-4 modal">
+    	<caption>
+        	<p>Информация о счете</p>
+        </caption>
+        <tbody>
+        	<tr>
+            	<td>ID счета</td>
+                <td>{{ invoice_id }}</td>
+            </tr>
+        	<tr>
+            	<td>Сумма счета</td>
+                <td>{{ invoice_summ }}</td>
+            </tr>
+        	<tr>
+            	<td>Дата выставления</td>
+                <td>{{ invoice_date }}</td>
+            </tr>
+        </tbody>
+	</table>
+    <form method="POST" action="{{ payment_url }}" target="_blank">
+    	<div class="form-submit-left">
+    		<input class="bt bt-blue2" type="submit" name="submit" value="Оплатить" />
+        </div>
+    </form>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,582 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+
+import sys, os
+# sys.path.append('../../')
+# sys.path.append('../')
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+from django.contrib.sessions.models import Session
+from django.contrib.auth.models import User
+from billing.models import BillserviceAccount
+from devices.models import *
+from page.models import *
+from data_centr.models import Zakazy, Data_centr_payment
+
+from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message, \
+                            add_record_in_priority_of_services, cost_dc
+
+from payment.models import Billservice_transaction
+
+from findocs.models import Package_on_connection_of_service
+
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q, Sum
+
+from django.db import connection
+from django.conf import settings
+
+import log
+from lib.mail import send_email
+
+from account.models import Profile
+from django.core.mail import EmailMultiAlternatives
+import calendar
+import datetime
+
+
+now = datetime.datetime.now()
+#дла проверки удаляем три дня
+#now = now - relativedelta(days=3)
+
+dict_message = {}
+
+
+
+#current_domain = {1:'globalhome.su', 2:'moscowdata.ru'}
+current_domain = 'moscowhost.su'
+
+message_block_for_admin = u"Заказы № %s заблокированы!"
+
+message_unblock_for_admin = u"Заказы № %s разблокированы!"
+
+message_shutdown_for_admin = u"Заказы № %s принудительно отключены!"
+
+message_info = u'''Информируем Вас о том, что:\n'''
+
+message_info_end = u'''С уважением www.%s'''
+
+message_shutdown = u'''Ваши %s принудительно деактивированы за неуплату!\n'''
+
+message_block = u'''Ваши %s заблокированы!\
+                    \nПосле произведения оплаты, Ваши заказы снова начнут функционировать!\n'''
+
+message_unblock = u'''Ваши %s разблокированы!\n'''
+
+message_24 = u'''Ваши %s спустя 24 часа будут заблокированы!\
+                \nВо избежание отключения, просим своевременно произвести оплату!\n'''
+
+message_48 = u'''Ваши %s спустя 48 часов будут заблокированы!\
+                \nВо избежание отключения, просим своевременно произвести оплату!\n'''
+
+message_24_shutdown = u'''Ваши %s спустя 24 часа будут принудительно деактивированы!\
+                \nВо избежание отключения, просим своевременно произвести оплату!\n'''
+
+message_48_shutdown = u'''Ваши %s спустя 48 часов будут принудительно деактивированы!\
+                \nВо избежание отключения, просим своевременно произвести оплату!\n'''
+
+print '*' * 100
+print "[%s] Start script for write off of money (7 operations)" % datetime.datetime.now()
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# функция для слияния двух словарей, конкретно для моего случая!!
+def merge_of_dictionaries(dict_message, dict_message_2):
+    for bill_acc in dict_message:
+        for type_message in dict_message[bill_acc]:
+            if dict_message_2.has_key(bill_acc):
+                if dict_message_2[bill_acc].has_key(type_message):
+                    dict_message_2[bill_acc][type_message].extend(dict_message[bill_acc][type_message])
+                else:
+                    dict_message_2[bill_acc].update({type_message : dict_message[bill_acc][type_message]})
+            else:
+                dict_message_2.update({bill_acc:{type_message : dict_message[bill_acc][type_message]}})
+    return dict_message_2
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# функция, которая отправляет указанное сообщение на указанный адрес
+def mes(bill_account_id, message, user):
+    bill_account_obj = BillserviceAccount.objects.get(id=bill_account_id)
+    #send_email(u"%s" % current_domain[user.site_reg], message, 'noreply@%s' % current_domain[user.site_reg], [bill_account_obj.email], user.id)
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# Освобождаем зарезервированные при регистрации или авторизации номера (8-800), если они не были подключены
+#     def free_number_800(now):
+#         timeout = 3
+#         limit_date = now - relativedelta(hours=timeout)
+#         numbers = ExternalNumber.objects.filter(region=NUMBER800_REGION, account=None, assigned_at__lte=limit_date, auth_user=None)
+#         for number in numbers:
+#             number.is_reserved = False
+#             number.save()
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+#     free_number_800(now)
+# проверка на создание новых записей и отключение заказов за предыдущий период
+#y записи data_centr_payment за тек месяц
+service_for_new_month = Data_centr_payment.objects.filter(year=now.year, month=now.month)
+
+# проверяем созданы ли записи с оплатами услуг на текущий месяц
+
+if not service_for_new_month:
+    #y берем !!!прошедший месяц!!!
+    date_last_month = now - relativedelta(months=1)
+    # проверяем есть ли не оплаченные ежемесячные услуги
+    # вроде если payment_date = None, то ето не оплаченная услуга
+    service_for_delete = Data_centr_payment.objects.filter(year=date_last_month.year, month=date_last_month.month, every_month=True, payment_date=None, postdate=False)
+    # если есть не оплаченные услуги
+    service_for_delete_not_every_month = Data_centr_payment.objects.filter(year=date_last_month.year, month=date_last_month.month, every_month=False, payment_date=None, postdate=False)
+    spis_service_for_delete = []
+    
+    #y проходимся по всем записям таблицы data_centr_payment у которых every_month = false дата оплаты None 
+    if service_for_delete_not_every_month:
+        for payment in service_for_delete_not_every_month:
+            #y start_activation  - если есть окончание тестового периода то start_activation ок тест периода иначе дата активации
+            start_activation = payment.zakaz.date_end_test_period if payment.zakaz.date_end_test_period else payment.zakaz.date_activation
+            #y актуальное неэксплотируемое время 
+            actual_idle_time = now - start_activation
+            #y получается типа если время простоя без оплаты больше че задданные 4 дня то:
+            if actual_idle_time.days >= payment.bill_account.idle_time:
+                #y то этот заказ добавляется в spis_service_for_delete
+                spis_service_for_delete.append(payment.zakaz.id)
+    if service_for_delete:
+        # то отключаем их и удаляем из приоритетов
+        for payment in service_for_delete:
+            spis_service_for_delete.append(payment.zakaz.id)
+    if spis_service_for_delete:
+        spis_service_for_delete.sort()
+        message = compulsory_shutdown_of_service(spis_service_for_delete, 5, True) # сюда добавить закрытие порта
+        dict_message = merge_of_dictionaries(dict_message, message)
+    print "[%s] 1 operation. Operation for shutdown service`s is successfully complete" % datetime.datetime.now()
+
+    # компануем список аккаунтов из действующих заказов
+    dict_bill_account = Zakazy.objects.filter(Q(status_zakaza=2) | Q(status_zakaza=4)).order_by('bill_account').distinct().values('bill_account')
+    # приводим список в порядок
+    spis_bill_account = [i["bill_account"] for i in dict_bill_account]
+    
+    print 'spis_bill_account'
+    print spis_bill_account
+    
+    zakazy_for_new_month = []
+    date_first_day_this_month = datetime.datetime(now.year, now.month, 1, 0, 0, 0)
+    # бежим по списку аккаунтов
+    for bill_account in spis_bill_account:
+        bill_account_obj = BillserviceAccount.objects.get(id=bill_account)
+        # делаем дату для фильтра. Настоящая дата минус выданное для пользователя время простоя
+        date_for_filter = date_first_day_this_month - relativedelta(days=bill_account_obj.idle_time) #!!!!!!!!!!!!!!!!!!!!!
+        # получаю заказы которые 100% нужно будет создавать
+        spis_zakazy_queryset = Zakazy.objects.filter(Q(bill_account=bill_account_obj) & (Q(status_zakaza=1) | Q(status_zakaza=2) | Q(status_zakaza=4)) & \
+                                                     Q(date_end_test_period__lt=date_for_filter) & Q(date_deactivation=None)).exclude(status_cost__in=[2, 3], date_end_test_period=None)
+        for zakaz in spis_zakazy_queryset:
+            zakazy_for_new_month.append(zakaz.id)
+        spis_zakazy_queryset = Zakazy.objects.filter(Q(bill_account=bill_account_obj) & (Q(status_zakaza=1) | Q(status_zakaza=2) | Q(status_zakaza=4)) & \
+                                                     Q(date_activation__lt=date_for_filter) & Q(date_end_test_period=None) & Q(date_deactivation=None)).exclude(status_cost__in=[2, 3])
+        for zakaz in spis_zakazy_queryset:
+            zakazy_for_new_month.append(zakaz.id)
+        # а вот эти заказы нужно дополнительно проверять
+        spis_zakazy_queryset = Zakazy.objects.filter(Q(bill_account=bill_account_obj) & \
+                                                     (Q(status_zakaza=1) | Q(status_zakaza=2) | Q(status_zakaza=4)) & \
+                                                     Q(date_activation__gte=date_for_filter) & Q(date_activation__lte=date_first_day_this_month) & Q(date_end_test_period=None) & \
+                                                     Q(date_deactivation=None)).exclude(status_cost__in=[2, 3])
+        for zakaz in spis_zakazy_queryset:
+            payment_queryset = Data_centr_payment.objects.filter(year=date_for_filter.year, month=date_for_filter.month, zakaz=zakaz, bill_account=bill_account_obj).exclude(payment_date=None)
+            if payment_queryset:
+                zakazy_for_new_month.append(zakaz.id)
+        spis_zakazy_queryset = Zakazy.objects.filter(Q(bill_account=bill_account_obj) & \
+                                                     (Q(status_zakaza=1) | Q(status_zakaza=2) | Q(status_zakaza=4)) & \
+                                                     Q(date_end_test_period__gte=date_for_filter) & Q(date_end_test_period__lte=date_first_day_this_month) & \
+                                                     Q(date_deactivation=None)).exclude(status_cost__in=[2, 3], date_end_test_period=None)
+        for zakaz in spis_zakazy_queryset:
+            payment_queryset = Data_centr_payment.objects.filter(year=date_for_filter.year, month=date_for_filter.month, zakaz=zakaz, bill_account=bill_account_obj).exclude(payment_date=None)
+            if payment_queryset:
+                zakazy_for_new_month.append(zakaz.id)
+
+
+    try:
+        # добавляем эти заказы
+        log.add("zakazy_for_new_month=%s" % zakazy_for_new_month)
+        for zakaz in zakazy_for_new_month:
+            zakaz = Zakazy.objects.get(id=zakaz)
+            start_activation = zakaz.date_end_test_period if zakaz.date_end_test_period else zakaz.date_activation
+            if start_activation == date_first_day_this_month:
+                every_month = False
+                add_record_in_priority_of_services(zakaz)
+            else:
+                every_month = True
+            cost = zakaz.cost
+            pod_zakazy = Zakazy.objects.filter(main_zakaz=zakaz.id, status_zakaza__id__in=[2, 4], status_cost=2)
+            for pod_zakaz in pod_zakazy:
+                cost += pod_zakaz.cost
+            payment = Data_centr_payment(
+                                         year=now.year,
+                                         month=now.month,
+                                         bill_account=zakaz.bill_account,
+                                         zakaz=zakaz,
+                                         every_month=every_month,
+                                         cost=cost,
+                                         )
+            payment.save()
+    except Exception, e:
+        print "zakaz %s" % zakaz.id
+        print "Exception in script_for_write_off_of_money: '%s'" % e
+        exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print "Exception in script_for_write_off_of_money: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+    print "[%s] 2 operation. Operation for add records in data_centr_payment is successfully complete" % datetime.datetime.now()
+else:
+    print "[%s] 1-2 operation. ok!" % datetime.datetime.now()
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+
+
+free_zakazy_qs = Zakazy.objects.filter(Q(cost=0) & Q(date_end_test_period__lte=now) & (Q(status_zakaza=1) | Q(status_zakaza=2) | Q(status_zakaza=4)))
+for free_zakaz_obj in free_zakazy_qs:
+    print free_zakaz_obj.id
+    cost = cost_dc(free_zakaz_obj.id)
+    free_zakaz_obj.cost = cost
+    free_zakaz_obj.save()
+    # высчитываем стоимость заказа
+    date_activation = datetime.datetime(free_zakaz_obj.date_end_test_period.year, free_zakaz_obj.date_end_test_period.month, \
+                                        free_zakaz_obj.date_end_test_period.day, 0, 0, 0)
+    date_first_day_this_month = datetime.datetime(now.year, now.month, 1, 0, 0, 0)
+    date_first_day_next_month = date_first_day_this_month + relativedelta(months=1)
+    count_day_in_month = float(calendar.mdays[datetime.date.today().month])
+    count_day_for_pay = date_first_day_next_month - date_activation
+    cost = float(free_zakaz_obj.cost) / float(count_day_in_month) * float(count_day_for_pay.days)
+    cost += free_zakaz_obj.connection_cost.cost
+    pod_zakazy = Zakazy.objects.filter(main_zakaz=free_zakaz_obj.id, status_cost=2)
+    for pod_zakaz in pod_zakazy:
+        cost += float(pod_zakaz.cost) / float(count_day_in_month) * float(count_day_for_pay.days)
+    cost_zakaz = '%.2f' % cost
+    payment_obj = Data_centr_payment.objects.get(zakaz=free_zakaz_obj, year=now.year, month=now.month)
+    payment_obj.cost = cost_zakaz
+    payment_obj.payment_date = None
+    payment_obj.every_month = False
+    payment_obj.save()
+print "[%s] 2.1 operation end test period zakaz. ok!" % datetime.datetime.now()
+
+#************************************************************************************
+#************************************************************************************
+# проверка не пора ли освобождать номера, которые лежат у пользователя в поле data
+#     package_queryset = Package_on_connection_of_service.objects.filter(activate=False, deactivate=False).exclude(data=None)
+#     for package_obj in package_queryset:
+#         data = package_obj.data
+#         try:
+#             data = eval(data)
+#         except:
+#             continue
+#         if data.has_key('numbers'):
+#             external_number_obj = ExternalNumber.objects.get(number=data['numbers'][0])
+#             idle_time = datetime.datetime.now() - external_number_obj.assigned_at
+#             if idle_time.days >= 3:
+#                 for del_number in data['numbers']:
+#                     external_number_obj = ExternalNumber.objects.get(number=del_number)
+#                     if del_number[0:4] in ('7495', '7499'):
+#                         region = 1
+#                     if del_number[0:4] == '7812':
+#                         region = 2
+#                     if del_number[0:4] == '7800':
+#                         region = NUMBER800_REGION
+#                     external_number_obj = ExternalNumber.objects.get(number=del_number)
+#                     external_number_obj.phone_numbers_group = None
+#                     external_number_obj.region = region
+#                     external_number_obj.account = None
+#                     external_number_obj.is_free = True
+#                     external_number_obj.is_reserved = False
+#                     external_number_obj.assigned_at = None
+#                     external_number_obj.auth_user = None
+#                     external_number_obj.save()
+#                 package_obj.deactivate = True
+#                 package_obj.save()
+#     external_number_qs = ExternalNumber.objects.exclude(date_deactivation=None)
+#     for external_number_obj in external_number_qs:
+#         if now > external_number_obj.date_deactivation + relativedelta(months=1):
+#             external_number_obj.date_deactivation = None
+#             external_number_obj.auth_user = None
+#             external_number_obj.is_free = True
+#             external_number_obj.is_reserved = False
+#             external_number_obj.save()
+#     print "[%s] 3 operations. Operation on clear data in Package_on_connection_of_service is successfully complete" % datetime.datetime.now()
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# создал для оптимизации кода, проверяем нужно ли высылать сообщение с предупреждением
+def test_for_add_warning_message(dict_message, payment_obj, hour, type_message):
+    if not payment_obj.message_on_warning == hour:
+        dict_message = add_text_message(dict_message, type_message, payment_obj.zakaz)
+        payment_obj.message_on_warning = hour
+        payment_obj.save()
+    return dict_message
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# проверка не пора ли разовые услуги отключать
+spis_zakaz_for_compulsory_shutdown = []
+spis_zakaz_for_deactivated = []
+
+# получаем список разовых неоплаченных записей для оплаты
+payment_queryset = Data_centr_payment.objects.filter(payment_date=None, every_month=False, postdate=False)
+print payment_queryset
+for payment_obj in payment_queryset:
+
+    start_activation = payment_obj.zakaz.date_end_test_period if payment_obj.zakaz.date_end_test_period else payment_obj.zakaz.date_activation
+    actual_idle_time = now - start_activation
+    # проверяем не просрочен ли разовый (не ежемесячный) заказ
+    if actual_idle_time.days >= payment_obj.bill_account.idle_time:
+        spis_zakaz_for_compulsory_shutdown.append(payment_obj.zakaz.id)
+
+# список заказов, у которых дата_деактивации меньше настоящего времени
+# окончательная деактивация для тех услуг, которые пользователь сам деактивировал
+zakazy_queryset = Zakazy.objects.filter(status_zakaza__in=[2, 4], date_deactivation__lt=now)
+for zakaz_obj in zakazy_queryset:
+    spis_zakaz_for_deactivated.append(zakaz_obj.id)
+
+#     tel_zakazy_queryset = TelNumbersZakazy.objects.filter(status_number=1, date_deactivation__lt=now)
+#     for telnumber_obj in tel_zakazy_queryset:
+#         for number in telnumber_obj.number.all():
+#             groups_queryset = TelNumbersGroup.objects.filter(numbers__id=number.id)
+#             for group_obj in groups_queryset:
+#                 if len(group_obj.numbers.all()) == 1:
+#                     ext_queryset = ExternalNumber.objects.filter(phone_numbers_group=group_obj.id)
+#                     for ext_number in ext_queryset:
+#                         ext_number.phone_numbers_group = None
+#                         ext_number.save()
+#                     group_obj.delete()
+#                 else:
+#                     group_obj.numbers.remove(number)
+
+if spis_zakaz_for_compulsory_shutdown:
+    message = compulsory_shutdown_of_service(spis_zakaz_for_compulsory_shutdown) #здесь рубить порт
+    dict_message = merge_of_dictionaries(dict_message, message) 
+if spis_zakaz_for_deactivated:
+    message = compulsory_shutdown_of_service(spis_zakaz_for_deactivated, 3) #здесь рубить порт
+    dict_message = merge_of_dictionaries(dict_message, message)
+print "[%s] 4 operations. Operation on shutdown service`s is successfully complete" % datetime.datetime.now()
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# непосредственно сам скрипт
+# собираем список аккаунтов у которых будет пытаться списать деньги
+dict_bill_account = Data_centr_payment.objects.filter(payment_date=None, postdate=False).order_by('bill_account').distinct().values('bill_account')
+# приводим список в порядок
+spis_bill_account = [i["bill_account"] for i in dict_bill_account]
+cur = connection.cursor()
+for bill_account in spis_bill_account:
+    # получаем объект аккаунта, чтобы передать в функцию
+    bill_account_obj = BillserviceAccount.objects.get(id=bill_account)
+    # проверяем включена ли у пользователя автооплата
+    if not bill_account_obj.auto_paid:
+        continue
+
+    # собираем список заказов, по которым будем пытаться списать деньги
+    # если надо будет переделать, то важно не забыть, что могуть быть не ежемесячные услуги с прошлого месяца.
+    cur.execute("SELECT dcp.zakaz_id FROM data_centr_payment_for_service as dcp, priority_of_services as pos \
+                WHERE dcp.bill_account_id=%s and dcp.payment_date IS NULL \
+                and dcp.bill_account_id=pos.bill_account_id and dcp.zakaz_id=pos.zakaz_id \
+                ORDER BY pos.priority;", (bill_account,))
+    spis_zakaz_temp = cur.fetchall()
+    spis_zakaz = [int(i[0]) for i in spis_zakaz_temp]
+    # вызываем функцию, которая спишет деньги
+    print 'spis_zakaz_before writeof%s' % spis_zakaz
+    if spis_zakaz:
+        log.add("bill=%s, spis=%s" % (bill_account, spis_zakaz))
+        print "bill=%s, spis=%s" % (bill_account, spis_zakaz)
+        message = write_off_of_money(bill_account_obj, spis_zakaz) #списание денег
+        dict_message = merge_of_dictionaries(dict_message, message)
+print "[%s] 5 operation. Write_off_of_money is successfully complete" % datetime.datetime.now()
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# проверка не пора ли блокировать заказы
+# получаем список неоплаченных записей для оплаты
+spis_zakaz_for_block = []
+payment_queryset = Data_centr_payment.objects.filter(year=now.year, month=now.month, payment_date=None, every_month=True)
+for payment_obj in payment_queryset:
+    # проверяем не просрочен ли ежемесячный заказ
+    date_first_day_this_month = datetime.datetime(payment_obj.year, payment_obj.month, 1, 0, 0, 0)
+    date_first_day_next_month = date_first_day_this_month + relativedelta(months=1)
+    actual_idle_time = now - date_first_day_this_month
+    profile_obj = Profile.objects.get(billing_account_id=payment_obj.bill_account.id)
+    # если количество дней простоя больше количества выданного для этого дней
+    if payment_obj.zakaz.service_type.id in (8,) and not profile_obj.is_juridical:
+        if actual_idle_time.days >= payment_obj.bill_account.idle_time_for_internet:
+            if not payment_obj.zakaz.status_zakaza.id in (3, 4, 5,):
+                spis_zakaz_for_block.append(payment_obj.zakaz.id)
+        # если осталось 48 часов до блокировки, то добавляем сообщение
+        elif payment_obj.bill_account.idle_time_for_internet - actual_idle_time.days == 2:
+            dict_message = test_for_add_warning_message(dict_message, payment_obj, 48, 'message_48')
+        # если осталось 24 часа до блокировки, то добавляем сообщение
+        elif payment_obj.bill_account.idle_time_for_internet - actual_idle_time.days == 1:
+            dict_message = test_for_add_warning_message(dict_message, payment_obj, 24, 'message_24')
+    else:
+        if actual_idle_time.days >= payment_obj.bill_account.idle_time_for_every_month:
+            if not payment_obj.zakaz.status_zakaza.id in (3, 4, 5,):
+                spis_zakaz_for_block.append(payment_obj.zakaz.id)
+
+        # если осталось 48 часов до блокировки, то добавляем сообщение
+        elif payment_obj.bill_account.idle_time_for_every_month - actual_idle_time.days == 2:
+            dict_message = test_for_add_warning_message(dict_message, payment_obj, 48, 'message_48')
+        # если осталось 24 часа до блокировки, то добавляем сообщение
+        elif payment_obj.bill_account.idle_time_for_every_month - actual_idle_time.days == 1:
+            dict_message = test_for_add_warning_message(dict_message, payment_obj, 24, 'message_24')
+
+    time_before_shutdown = date_first_day_next_month - now
+    # если осталось 48 часов до отключения, то добавляем сообщение
+    if time_before_shutdown.days == 2:
+        dict_message = test_for_add_warning_message(dict_message, payment_obj, 48, 'message_48_shutdown')
+    # если осталось 24 часа до отключения, то добавляем сообщение
+    elif time_before_shutdown.days == 1:
+        dict_message = test_for_add_warning_message(dict_message, payment_obj, 24, 'message_24_shutdown')
+
+# получаем список разовых неоплаченных записей для оплаты
+payment_queryset = Data_centr_payment.objects.filter(payment_date=None, every_month=False, postdate=False)
+for payment_obj in payment_queryset:
+    start_activation = payment_obj.zakaz.date_end_test_period if payment_obj.zakaz.date_end_test_period else payment_obj.zakaz.date_activation
+    actual_idle_time = now - start_activation
+    # если осталось 48 часов до отключения, то добавляем сообщение
+    if payment_obj.bill_account.idle_time - actual_idle_time.days == 2:
+        dict_message = test_for_add_warning_message(dict_message, payment_obj, 48, 'message_48_shutdown')
+    # если осталось 24 часа до отключения, то добавляем сообщение
+    elif payment_obj.bill_account.idle_time - actual_idle_time.days == 1:
+        dict_message = test_for_add_warning_message(dict_message, payment_obj, 24, 'message_24_shutdown')
+
+if spis_zakaz_for_block:
+    message = block_service(spis_zakaz_for_block)
+    dict_message = merge_of_dictionaries(dict_message, message)
+print "[%s] 6 operation. Operation on block and add warning message is successfully complete" % datetime.datetime.now()
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#************************************************************************************
+#************************************************************************************
+# здесь происходит распарс словаря с сообщениями, компоновка самого сообщения и его отправка
+print "dict_message = %s" % dict_message
+log.add("***********************************************************************************************************")
+log.add("--------------------- start operation for send message -------------")
+zakazy_unblock_for_admin = []
+zakazy_block_for_admin = []
+zakazy_shutdown_for_admin = []
+for bill_account in dict_message:
+    profile_obj = Profile.objects.get(billing_account_id=bill_account)
+    text = message_info
+    for type_message in dict_message[bill_account]:
+        zakazy = zakazy_temp = []
+        number = []
+        zakazy = dict_message[bill_account][type_message]
+        for zakaz in zakazy:
+            zakazy_temp.append(zakaz)
+            zakaz_obj = Zakazy.objects.get(id=zakaz)
+            if zakaz_obj.section_type == 1:
+                spis_number = zakaz_obj.ext_numbers.all()
+                for ext_number in spis_number:
+                    number.append(ext_number.number)
+                zakazy_temp.remove(zakaz)
+        variable = ''
+        if zakazy_temp:
+            spis_zakaz = ', '.join([str(x) for x in zakazy_temp]).rstrip(', ')
+            variable = u'заказы № %s' % spis_zakaz
+        if number:
+            if zakazy_temp:
+                variable += u' и '
+            spis_number = ', '.join([str(x) for x in number]).rstrip(', ')
+            variable += u'номера %s' % spis_number
+        if type_message == 'message_shutdown':
+            text += message_shutdown % variable
+            zakazy_shutdown_for_admin += zakazy
+        if type_message == 'message_block':
+            text += message_block % variable
+            zakazy_block_for_admin += zakazy
+        if type_message == 'message_unblock':
+            text += message_unblock % variable
+            zakazy_unblock_for_admin += zakazy
+        if type_message == 'message_24':
+            text += message_24 % variable
+        if type_message == 'message_48':
+            text += message_48 % variable
+        if type_message == 'message_24_shutdown':
+            text += message_24_shutdown % variable
+        if type_message == 'message_48_shutdown':
+            text += message_48_shutdown % variable
+    text += message_info_end % current_domain
+    try:
+        mes(bill_account, text, profile_obj.user)
+        print "Send message for bill_account=%s" % bill_account
+        log.add("Send message for bill_account=%s" % bill_account)
+    except:
+        print "Error, it wasn't succeeded to send the message for bill_account=%s" % bill_account
+        log.add("Error, it wasn't succeeded to send the message for bill_account=%s, \n \
+        text=%s" % (bill_account, text))
+
+def create_html_2_send_mail(spis_zakaz, subject):
+    spis_zakaz.sort()
+    html_content = u'''<table border="1" cellpadding="4" cellspacing="0">
+                           <thead>
+                               <tr style="background: #06F; color: white; font-size: 16px;">
+                                   <td width="40px;" style="text-align: center;">id</td>
+                                   <td width="100px;">Пользователь</td>
+                                   <td width="300px;">Тип услуги</td>
+                                   <td width="110px;">Дата активации</td>
+                               </tr>
+                           </thead>
+                       <tbody>'''
+    for zakaz_id in spis_zakaz:
+        zakaz_obj = Zakazy.objects.get(id=zakaz_id)
+        if zakaz_obj.service_type.id == 3:
+            type_zakaz = u'%s' % zakaz_obj.ext_numbers.all()[0]
+        elif zakaz_obj.service_type.id == 10:
+            type_zakaz = u'%s' % zakaz_obj.ip.all()[0]
+        else:
+            type_zakaz = u'%s' % zakaz_obj.service_type
+        html_content += u'''
+                        <tr>
+                            <td style="text-align: center;"><a href="http://globalhome.su/admin/data_centr/zakazy/%s/">%s</a></td>
+                            <td>%s</td>
+                            <td>%s</td>
+                            <td>%s</td>
+                        </tr>''' % (zakaz_obj.id, zakaz_obj.id, zakaz_obj.bill_account, type_zakaz, zakaz_obj.date_activation)
+    html_content += u'</tbody></table>'
+    msg = EmailMultiAlternatives(u'%s' % subject, '', settings.DEFAULT_FROM_EMAIL, ['Zz1n@globalhome.su', 'noc@globalhome.su'])
+    msg.attach_alternative(html_content, "text/html")
+    #msg.send()
+
+if zakazy_block_for_admin:
+    create_html_2_send_mail(zakazy_block_for_admin, u'Блокировка заказов')
+if zakazy_unblock_for_admin:
+    create_html_2_send_mail(zakazy_unblock_for_admin, u'Разблокировка заказов')
+if zakazy_shutdown_for_admin:
+    create_html_2_send_mail(zakazy_shutdown_for_admin, u'Принудительное отключение заказов')
+log.add("--------------------- end operation for send message -------------")
+log.add("***********************************************************************************************************")
+print "[%s] 7 operation. Send message`s for users is successfully complete" % datetime.datetime.now()
+print "[%s] Script for write off of money finished the work " % datetime.datetime.now()
+print '*' * 100
+#************************************************************************************
+#************************************************************************************
+#------------------------------------------------------------------------------------
+#except Exception, e:
+#     body_message = "Exception in script new_script_for_write_off_of_money.py: '%s'" % e
+#     exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+#     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+#     body_message += "\nException in script new_script_for_write_off_of_money.py: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+#     print body_message
+
+

@@ -1,0 +1,117 @@
+# coding: utf-8
+# Create your views here.
+from lib.decorators import render_to, login_required
+from account.models import Profile
+from internet.models import VpnAuth
+from internet.forms import VpnAuthForm, VpnFormEdit
+from django.shortcuts import HttpResponseRedirect
+from django.http import Http404
+#from internet.forms import VpnAuthForm
+
+@login_required
+@render_to('vpn_user.html')
+def vpn_users(request):
+    context = {}
+    context['edit'] = False
+    context['title'] = u'Список Ваших VPN аккаунтов'
+    context['current_view_name'] = "vpn_users"
+    profile = Profile.objects.get(user=request.user)
+    vpn_logins = VpnAuth.objects.filter(billing_account_id=profile.billing_account_id, visible=True)
+    vpn_login = []
+    for i in vpn_logins:
+        vpn_login.append({'id' : i.id, 'login' : i.login, 'value' : i.value })
+    context['vpn_logins'] = vpn_login
+    context["add"] = True
+    return context
+
+
+@login_required
+@render_to('vpn_user_add.html')
+def vpn_users_add(request):
+    context = {}
+    context['title'] = u'Добавление VPN аккаунта'
+    context['current_view_name'] = "vpn_users"
+    profile = Profile.objects.get(user=request.user)
+    if request.method == 'POST':
+        form = VpnAuthForm(request.POST.copy())
+        if form.is_valid():
+            cd = form.cleaned_data
+            if VpnAuth.objects.filter(login=cd['login']):
+                request.notifications.add(u'Данный логин уже существует.', 'error')
+            elif cd['password'] != cd['password_check']:
+                request.notifications.add(u'Пароли не совпадают!', 'error')
+            else:
+                context = {}
+                VpnAuth.objects.create(login=cd['login'], value=cd['password'], billing_account_id=profile.billing_account_id)
+                request.notifications.add(u'Данные успешно добавлены', 'success')
+                return HttpResponseRedirect("/account/internet/vpn/")
+    else:
+        form = VpnAuthForm()
+    context['form'] = form
+    return context
+
+
+@login_required
+@render_to('vpn_user_edit.html')
+def vpn_users_edit(request, vpn_id):
+    context = {}
+    context['edit'] = True
+    context['title'] = u'Изменить пароль к VPN аккаунту'
+    context['current_view_name'] = "vpn_users"
+    profile = Profile.objects.get(user=request.user)
+    try:
+        st = VpnAuth.objects.get(id=vpn_id, billing_account_id=profile.billing_account_id, visible=True)
+        if st:
+            if request.method == 'POST':
+                form = VpnFormEdit(request.POST.copy())
+                if form.is_valid():
+                    form_login = form.cleaned_data.get('login')
+                    form_password = form.cleaned_data.get('password')
+                    form_password_check = form.cleaned_data.get('password_check')
+                    if form_password != form_password_check:
+                        request.notifications.add(u'Пароли не совпадают', 'error')
+                    else:
+                        try:
+                            st = VpnAuth.objects.get(login=form_login, billing_account_id=profile.billing_account_id, visible=True)
+                            st.value = form_password
+                            st.save()
+                            request.notifications.add(u'Редактирование успешно завершено', 'success')
+                            return HttpResponseRedirect("/account/internet/vpn/")
+                        except VpnAuth.DoesNotExist:
+                            raise Http404
+                else:
+                    context['form'] = form
+                    return context
+    except VpnAuth.DoesNotExist:
+        raise Http404
+    context['form'] = VpnFormEdit(initial={'login': st.login })
+    return context
+
+
+@login_required
+@render_to('vpn_user_del.html')
+def vpn_users_del(request, vpn_id):
+    context = {}
+    profile = Profile.objects.get(user=request.user)
+    try:
+        st = VpnAuth.objects.get(id=vpn_id, billing_account_id=profile.billing_account_id, visible=True)
+    except VpnAuth.DoesNotExist:
+        raise Http404
+    context['vpn'] = st
+    context['vpn_id'] = vpn_id
+    context['title'] = u'Удаление VPN аккаунта'
+    context['current_view_name'] = "vpn_users"
+    return context
+
+
+@login_required
+def vpn_users_deleting(request, vpn_id):
+    profile = Profile.objects.get(user=request.user)
+    try:
+        st = VpnAuth.objects.get(id=vpn_id, billing_account_id=profile.billing_account_id, visible=True)
+        st.visible = False
+        st.save()
+    except VpnAuth.DoesNotExist:
+        raise Http404
+    request.notifications.add(u'Удаление успешно завершено', 'success')
+    return HttpResponseRedirect("/account/internet/vpn/")

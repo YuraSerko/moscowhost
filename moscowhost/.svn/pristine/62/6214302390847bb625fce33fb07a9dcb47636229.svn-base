@@ -1,0 +1,72 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags lib_tags %}
+
+{% block content %}
+
+{% if not no_payment %}
+{% if form %}
+    
+    <h1 class="title">Пополнение счета через мобильный телефон</h1>
+    
+    {{ block.super }}
+    
+        <form id="pay" name="pay" method="POST" action="">
+            <h4 class="h4_style">{% trans "Please specify the amount for which you want to replenish the balance" %}:</h4>
+            
+            <div class="form_django">
+            
+                {% for field in form %}  
+                      {% form_field field block %}      
+                {% endfor %}	
+                <div class="form-submit-right">
+                    <input id="submit-button" type="submit" class="bt bt-blue2" name="submit" value="{% trans 'Continue' %}"/>
+                </div>
+            
+            </div>
+            
+        </form>
+{% else %}
+
+	<script type="text/javascript">
+     function load()
+     {
+          window.document.pay.submit();
+          return;
+     }
+     </script>
+    
+    
+    <h1 class="title">Подтверждение</h1>
+    
+    <body onLoad="load()">
+
+    <form id=pay name=pay method="POST" action="https://auth.robokassa.ru/Merchant/Index.aspx">
+    {% comment %}
+    <form id=pay name=pay method="POST" action="http://test.robokassa.ru/Index.aspx">
+    {% endcomment %}
+        <h4 class="h4_style">{% trans "Пожалуйста ожидайте. Сейчас произойдет перенаправление на страницу оплаты" %}.</h4>
+        <h4 class="h4_style">{% trans "Если этого не произошло, нажмите кнопку ниже" %}:</h4>
+        <div class="form-submit-left">
+            <input class="bt bt-blue2" type="submit" value={% trans "Оплатить" %}>
+        </div>
+        <p>
+            <input type="hidden" name="MrchLogin" value="{{ mrh_login }}">
+            <input type="hidden" name="OutSum" value="{{ out_summ }}">
+            <input type="hidden" name="InvId" value="{{ inv_id }}">
+            <input type="hidden" name="Desc" value="{{ inv_desc }}">
+            <input type="hidden" name="SignatureValue" value="{{ crc }}">
+            <input type="hidden" name="Shp_accountid" value="{{ Shp_accountid }}">
+            <input type="hidden" name="Shp_operationtype" value="{{ Shp_operationtype }}">
+            <input type="hidden" name="IncCurrLabel" value="{{ in_curr }}">
+            <input type="hidden" name="Culture" value="{{ culture }}">
+        </p>
+    </form>
+
+{% endif %}
+
+
+{% else %}
+	 <h1 class="title">К сожалению для юридических лиц нельзя совершить оплату</h1>
+	
+{% endif %}
+{% endblock %}

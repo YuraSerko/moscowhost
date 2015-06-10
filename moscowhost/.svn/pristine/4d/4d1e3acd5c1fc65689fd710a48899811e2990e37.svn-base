@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+import psycopg2
+import sys
+import datetime
+import os
+
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings  # @UnresolvedImport
+setup_environ(settings)
+from data_centr.models import Data_centr_payment, Zakazy
+from telnumbers.models import TelNumber, TelNumbersZakazy
+from django.core.mail import send_mail, EmailMultiAlternatives
+from settings import DEFAULT_FROM_EMAIL
+from settings import DATABASES
+import calendar
+from dateutil.relativedelta import relativedelta
+import copy
+
+
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur.connection.set_isolation_level(1)
+
+try:
+    cur.execute("DELETE from telnumbers_zakazy")
+    cur.execute("DELETE from telnumbers_zakazy_number")
+except Exception, e:
+    print e
+    cur.connection.rollback()
+else:
+    cur.connection.commit()
+
+try:
+    cur.execute("SELECT setval('telnumbers_zakazy_id_seq', 1, False);")
+    cur.execute("SELECT setval('telnumbers_zakazy_number_id_seq', 1, False);")
+except Exception, e:
+    print e
+    cur.connection.rollback()
+else:
+    cur.connection.commit()
+
+try:
+    telnumber_all = TelNumber.objects.all()
+    for telnumber_obj in telnumber_all:
+        print 'create number = %s'%telnumber_obj.tel_number
+        number_zakazy = TelNumbersZakazy(    
+                                    bill_account = telnumber_obj.account,
+                                    date_activation = datetime.datetime.now(),
+                                    )
+        number_zakazy.save()
+        number_zakazy.number.add(telnumber_obj)
+        number_zakazy.save()
+except Exception, e:
+    print 'error in add_number = %s' % e
+print "Operation is successfully complete"

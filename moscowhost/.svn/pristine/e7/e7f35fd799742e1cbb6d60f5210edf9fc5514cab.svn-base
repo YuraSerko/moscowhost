@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+import psycopg2
+import sys
+import datetime
+
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+from settings import DATABASES
+import os
+
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['default'])
+conn2 = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur2 = conn2.cursor()
+cur.connection.set_isolation_level(1)
+cur.connection.commit()
+
+
+try:
+    cur2.execute("DELETE from data_centr_payment_for_service")
+except Exception, e:
+    print e
+    cur2.connection.rollback()
+else:
+    cur2.connection.commit()
+
+try:
+    cur2.execute("SELECT setval('data_centr_payment_for_service_id_seq', 1, False);")
+except Exception, e:
+    print e
+    cur2.connection.rollback()
+else:
+    cur2.connection.commit()
+cur2.execute("SELECT id, bill_account_id, cost FROM data_centr_zakazy WHERE status_zakaza_id in (1,2,4);")
+spis = cur2.fetchall()
+for record in spis:
+    try:
+        id, bill_account, cost = record
+        print "------------------------------------------------------------------------------"
+        print "-------------------- start add records for bill_account_id=%s --------------------" % bill_account
+        cur2.execute("INSERT INTO data_centr_payment_for_service(year, month, bill_account_id, zakaz_id, every_month, cost) VALUES (%s, %s, %s, %s, %s, %s)", (2012, 12, bill_account, id, True, cost))
+        print "--------------------- end add_records for bill_account_id=%s ---------------------" % bill_account
+        print "------------------------------------------------------------------------------"
+    except Exception, e:
+        print "Exception in data_centr_payment_for_service: '%s'" % e
+        exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print "Exception in data_centr_payment_for_service: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+        cur2.connection.rollback()
+    else:
+        cur2.connection.commit()
+
+date_for_check = datetime.datetime(2012, 12, 1, 0, 0, 0)
+cur.execute("SELECT created_by_id, paid, zakaz_id, every_month FROM content_check WHERE type=%s and created_at >= %s and zakaz_id IS NOT NULL;", ('check', date_for_check,  ))
+checks = cur.fetchall()
+for check in checks:
+    print check
+    spis_zakaz = []
+    user_id, paid, zakaz_id, every_month = check
+    cur.execute("SELECT billing_account_id FROM account_profile WHERE user_id = %s;", (user_id, ))
+    bill_account_id = cur.fetchone()[0]
+    spis_zakaz = zakaz_id.split(', ')
+    print datetime.datetime.now(), spis_zakaz
+    for zakaz_id in spis_zakaz:
+        if paid:
+            cur2.execute("UPDATE data_centr_payment_for_service SET payment_date=now(), every_month=%s WHERE bill_account_id=%s \
+                         and zakaz_id=%s;", (every_month, bill_account_id, zakaz_id, ))
+            cur2.connection.commit()
+        else:
+            cur2.execute("UPDATE data_centr_payment_for_service SET every_month=%s WHERE bill_account_id=%s \
+                         and zakaz_id=%s;", (every_month, bill_account_id, zakaz_id, ))
+            cur2.connection.commit()
+        if not every_month:
+            print "111111111111111111111111111111111111"
+            cur2.execute("SELECT connection_cost_id, cost FROM data_centr_zakazy WHERE id=%s;", (zakaz_id, ))
+            f = cur2.fetchall()
+            for i in f:
+                connection_cost, cost = i
+            cur2.execute("SELECT cost FROM data_centr_price_connection WHERE id=%s;", (connection_cost, ))
+            connection_cost_temp = cur2.fetchall()
+            for i in connection_cost_temp:
+                connection_cost = i[0]
+            cost_zakaz = cost + connection_cost
+            cur2.execute("UPDATE data_centr_payment_for_service SET cost=%s WHERE bill_account_id=%s \
+                         and zakaz_id=%s;", (cost_zakaz, bill_account_id, zakaz_id, ))
+            cur2.connection.commit()
+
+print "Add records in data_centr_payment_for_service is successfully complete"

@@ -1,0 +1,131 @@
+# -*-coding=utf-8-*-
+
+from django.http import Http404
+from lib.decorators import render_to, login_required
+from payment.qiwi.forms import QiwiPaymentRequestForm, QiwiPaymentRequestFormCard
+from payment.qiwi.models import Invoice as QiwiInvoice
+from page.views import panel_base_auth
+
+
+@login_required
+@render_to('payment.html')
+def payment_qiwi(request):
+    profile = request.user.get_profile()
+    if profile.is_juridical:
+        raise Http404
+    context = {}
+    if request.method != 'POST':
+        last_qiwi_invoice = None
+        try:
+            last_qiwi_invoice = QiwiInvoice.objects.filter(account=request.user.get_profile().billing_account).order_by('-created')[0]
+            # print 'da'
+        except Exception, e:
+            pass
+        if last_qiwi_invoice:
+            # print 'tut ', last_qiwi_invoice.phone
+            qiwi_form = QiwiPaymentRequestForm(initial={'phone':last_qiwi_invoice.phone})
+        else:
+            qiwi_form = QiwiPaymentRequestForm(initial={'phone': ''})  # request.user.account.phone_m})
+        return {'qiwi_form': qiwi_form}
+    form = QiwiPaymentRequestForm(request.POST.copy())
+    context['qiwi_form'] = form
+    if not form.is_valid():
+        request.notifications.add(u"Ошибка в заполнении полей", "error")
+        return context
+    summ = form.cleaned_data.get('summ', 0)
+    phone = form.cleaned_data.get('phone', '')
+
+    from payment.qiwi.qiwiapi import create_invoice, accept_invoice_id, lifetime
+
+    profile = request.user.get_profile()
+    invoice = QiwiInvoice()
+    invoice.account = profile.billing_account
+    invoice.phone = phone
+    invoice.summ = summ
+    # invoice.created = datetime.datetime.now()
+    # invoice.autoaccept = autoaccept
+    invoice.lifetime = lifetime
+    invoice.type = 1
+    invoice.save()
+    comment = u"Пополнение счёта на GlobalHome.su для %s" % profile.billing_account.username
+    status, message = create_invoice(phone_number=phone, transaction_id=invoice.id, summ=invoice.summ, comment=comment)
+    # print 'status', type(status)
+    if status != 0:
+        invoice.delete()
+        request.notifications.add(u'Произошла ошибка выставления счёта. %s' % message, "error")
+        return context
+
+    from payment.qiwi.qiwiapi import term_id
+    payment_url = "https://w.qiwi.com/order/external/main.action?shop=%s&transaction=%s" % (term_id, invoice.id)
+    # message = u'Счёт удачно создан. Пройдите по <a href=%s>ссылке<a> для его оплаты.' % payment_url
+    # request.notifications.add(message, "succes")
+    # request['message'] = message
+    payed = True
+    # context['qiwi_form'] = None
+    return {'payed': payed, 'payment_url':payment_url, 'invoice_id':invoice.id, 'invoice_summ':float(invoice.summ), 'invoice_date':"%s-%s-%s %s:%s:%s" % (invoice.created.day, invoice.created.month, invoice.created.year, invoice.created.hour, invoice.created.minute, invoice.created.second)}
+
+
+#from hotspot.views import hotspot_identity
+from django.conf import settings
+@render_to('payment_card.html')
+def payment_qiwi_card(request):
+    context = {}
+    context['hide_review'] = True
+    #context['site'] = settings.CURRENT_SITE
+    amount = request.GET.get('amount', '')
+    context['meta_keywords'] = u'карты доступа, купить карту доступа, QIWI'
+    context['meta_description'] = u'Для оплаты услуг Вы можете купить карту доступа с помощью QIWI.'
+    if not request.method == 'POST':
+        form = QiwiPaymentRequestFormCard()
+        context['qiwi_form'] = form
+        context['meta_title'] = u'Купить карту доступа с помощью QIWI %s' % amount if amount else u'Покупка карты доступа с помощью QIWI'
+        #if settings.CURRENT_SITE == 1:
+        #    context['header'] = u'Покупка карты Qiwi %s' % amount if amount else u'Оплата карты с помощью Qiwi'
+        return panel_base_auth(request, context)
+
+    else:
+        form = QiwiPaymentRequestFormCard(request.POST.copy())
+        context['qiwi_form'] = form
+        if not form.is_valid():
+            request.notifications.add(u"Ошибка в заполнении полей", "error")
+            return panel_base_auth(request, context)
+
+        summ = form.cleaned_data.get('amount')
+        phone = form.cleaned_data.get('phone', '')
+        email = form.cleaned_data.get('email', '')
+        phone_sms = form.cleaned_data.get('phone_sms', '')
+
+        from payment.qiwi.qiwiapi import create_invoice, lifetime
+
+        # profile = request.user.get_profile()
+        invoice = QiwiInvoice()
+        # invoice.account = profile.billing_account
+        invoice.phone = phone
+        invoice.summ = summ
+        invoice.lifetime = lifetime
+        invoice.type = 2
+        invoice.email = email
+        invoice.phone_sms = phone_sms
+        invoice.save()
+        comment = u"Покупка карты предоплаты GlobalHome.su %s рублей" % amount
+        status, message = create_invoice(phone_number=phone, transaction_id=invoice.id, summ=invoice.summ, comment=comment)
+        # print 'status', type(status)
+        from payment.qiwi.qiwiapi import term_id
+
+        payment_url = "https://w.qiwi.ru/externalorder.action?shop=%s&transaction=%s" % (term_id, invoice.id)
+        context2 = {'payment_url':payment_url, 'invoice_id':invoice.id, 'invoice_summ':float(invoice.summ), 'invoice_date':"%s-%s-%s %s:%s:%s" % (invoice.created.day, invoice.created.month, invoice.created.year, invoice.created.hour, invoice.created.minute, invoice.created.second)}
+#         if settings.CURRENT_SITE == 3:
+#             context.update(context2)
+#             context['no_content'] = True
+#             context['qiwi_form'] = False
+        if status != 0:
+            invoice.delete()
+            request.notifications.add(u'Произошла ошибка выставления счёта. %s' % message, "error")
+            return context
+
+        return context2
+
+
+
+
+

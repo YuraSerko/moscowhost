@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% load account_menu %}
+
+
+{% block extrahead %}
+
+
+
+<script src="{{ MEDIA_URL }}js/jquery_private.js"></script>
+<script src="{{ MEDIA_URL }}js/jquery-ui_private.js"></script>
+<script src="{{ MEDIA_URL }}js/script_private_moscowdata.js"></script>
+<link rel="stylesheet" href="{{ MEDIA_URL }}css/style_private.css">
+<link rel="stylesheet" href="{{ MEDIA_URL }}css/jquery-ui_private.css"> 
+
+
+{% endblock %}
+
+
+{% block header %}
+	{{ block.super }}
+	<!-- информация о юзере и кнопка выход -->
+	<div class="user user-logged"><i class="icon"></i>
+           		{% with user.get_profile.main_billing_account_id as id %}
+				<span class="username">{{ id }}, <br><span title="Ваш ID и Имя"><i></i>{{ request.user.username }}</span></span>
+				<span class="logout"><a class="nav" href="/logout/">| Выход</a></span>
+            	{% endwith %}
+	</div>
+{% endblock %}
+
+
+{% block wrapper %}
+	<div class="accmain" >
+	{% block main %} 
+	
+		{% account_profile_menu %} <!-- left menu -->
+		
+		<div class="acc_main" >
+			{% block acc_main %}
+						{% block notifications %}
+		                    {% if request.notifications %}
+		                        {% for message in request.notifications %}
+		                            <div class="status status-{{ message.tags }}">
+		                                <i class="ico"></i>
+		                                <div class="status-i">
+		                                    <p>{{ message }}</p>
+		                                </div>
+		                            </div>
+		                        {% endfor %}
+		                    {% endif %}
+		                 {% endblock %}
+			{% endblock %}
+		</div>
+	
+	{% endblock %}
+	</div>
+{% endblock %}	

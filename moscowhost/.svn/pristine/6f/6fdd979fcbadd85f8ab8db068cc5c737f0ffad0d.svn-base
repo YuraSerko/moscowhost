@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+# coding: utf-8
+try:
+    import datetime
+    import sys, os
+    sys.path[0] = '../'
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+    from data_centr.models import Data_centr_payment, Zakazy
+    from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message, add_record_in_priority_of_services
+    from billing.models import BillserviceAccount
+    from externalnumbers.models import ExternalNumber
+    from findocs.models import Package_on_connection_of_service
+    from telnumbers.models import TelNumbersZakazy, TelNumbersGroup
+    from dateutil.relativedelta import relativedelta
+    from django.db.models import Q
+    from django.db import connections
+    from django.conf import settings
+    from account.models import Profile
+    from account.forms import ADDRESS_TYPE_LEGAL, ADDRESS_TYPE_POSTAL, ADDRESS_TYPE_PHYSICAL, AddressLegalForm, \
+                            AddressPostalForm, ProfileJuridicalDataForm, ProfilePhisicalDataForm, AddressPhysicalForm
+    from django.utils import simplejson
+    from django.core.serializers import serialize
+
+    profile_qs = Profile.objects.all()
+    i = 0
+    with_data = 0
+    len_qs = len(profile_qs)
+    for profile_obj in profile_qs:
+        i += 1
+        print '%s/%s' % (i, len_qs)
+        if profile_obj.is_juridical:
+            if profile_obj.address(ADDRESS_TYPE_LEGAL) and profile_obj.address(ADDRESS_TYPE_POSTAL):
+                with_data += 1
+                profile_dict = simplejson.loads(serialize('json', [profile_obj]))[0]['fields']
+                legal_address_dict = simplejson.loads(serialize('json', [profile_obj.address(ADDRESS_TYPE_LEGAL)]))[0]['fields']
+                postal_address_dict = simplejson.loads(serialize('json', [profile_obj.address(ADDRESS_TYPE_POSTAL)]))[0]['fields']
+                corporate_form = ProfileJuridicalDataForm(profile_dict)
+                legal_address_form = AddressLegalForm(legal_address_dict)
+                postal_address_form = AddressPostalForm(postal_address_dict)
+                if 3 == len(filter(lambda x: x.is_valid(), [corporate_form, legal_address_form, postal_address_form])):
+                    profile_obj.access_to_personal_information = True
+                else:
+                    profile_obj.access_to_personal_information = False
+        else:
+            if profile_obj.address(ADDRESS_TYPE_PHYSICAL):
+                with_data += 1
+                profile_dict = simplejson.loads(serialize('json', [profile_obj]))[0]['fields']
+                personal_address_dict = simplejson.loads(serialize('json', [profile_obj.address(ADDRESS_TYPE_PHYSICAL)]))[0]['fields']
+                personal_form = ProfilePhisicalDataForm(profile_dict)
+                physical_address_form = AddressPhysicalForm(personal_address_dict)
+                if 2 == len(filter(lambda x: x.is_valid(), [personal_form, physical_address_form])):
+                    profile_obj.access_to_personal_information = True
+                else:
+                    profile_obj.access_to_personal_information = False
+        profile_obj.save()
+    print 'with_data = %s' % with_data
+
+except Exception, e:
+    body_message = "Exception in script soglashenie.py: '%s'" % e
+    exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    body_message += "\nException in script 15new_script_for_write_off_of_money.py: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+    print body_message

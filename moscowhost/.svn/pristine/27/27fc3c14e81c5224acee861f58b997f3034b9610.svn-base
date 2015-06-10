@@ -1,0 +1,216 @@
+<?php
+
+    include('RectShape.class.php');
+
+    /**
+     * Активная область - иконка
+     * @see IHotspot
+     */
+    class PointHotspot implements IHotspot {
+
+        private $long, $lat, $pixelOffsets, $style, $data, $priority, $datafake = array(), $stylefake,
+                $cache = array ();
+
+        public function __construct ($json, $groupStyle) {
+        	//print '1111111111111111111111111111';
+            $parts = explode(' ', $json['Point']['pos']);
+            $this->long = floatval($parts[0]);
+            $this->lat = floatval($parts[1]);
+
+            $style = isset($json['style']) ? $json['style'] : NULL;
+            $this->style = Styles::getComputedStyle($style, $groupStyle, true);
+			
+           // print 'STYLE';
+           /// print $json['style'];
+            //print 'STYLE_END';
+            
+            
+            $metaData = isset($json['metaDataProperty']) && isset($json['metaDataProperty']['AnyMetaData']) ?
+                            $json['metaDataProperty']['AnyMetaData'] :
+                            array();
+            
+            $this->priority = isset($metaData['priority']) ? floatval($metaData['priority']) : 0;
+
+            $size = $this->style['iconStyle']['size'];
+            $offset = $this->style['iconStyle']['offset'];
+
+            $this->pixelOffsets = array(
+                intval($offset['x']), intval($offset['y']),
+                intval($size['x']) + intval($offset['x']), intval($size['y']) + intval($offset['y'])
+            );
+			
+            
+            $this->data = $json;
+            //print_r ($json);
+            //уберем Point из описания
+            
+            $this->datafake["hintContent"] = $json["hintContent"];
+            $this->datafake["balloonContentBody"] = $json["balloonContentBody"];
+            $this->datafake["balloonContentHeader"] = $json["balloonContentHeader"];
+            $this->datafake["balloonContentFooter"] = $json["balloonContentFooter"];
+            //$this->stylefake = $json["style"];
+            
+            //print '1111111111111111';
+            //print $this->stylefake;
+            //$this->datafake['style'] = $json['style'];
+            //print '55555555555555';
+            //print $json;
+            //foreach($datafake as $k=>$v)
+            // 	print $k. '    ';
+            //	print $v. '    ';
+            
+             
+            
+            //print '11111111111111111';
+            //foreach($this as $k => $value)
+            	//print $k; print  '|||||||||||';
+        }
+
+        public function intersects ($tileNumber, $zoom) {
+            $shapes = $this->getPixelShapes($zoom);
+            $tileLeftBottom = $tileNumber->scale(256);
+            $tileRightTop = $tileNumber->moveBy(new Point(1, 1))->scale(256);
+
+            foreach ($shapes as $shape) {
+                if ($shape->intersects($tileLeftBottom, $tileRightTop)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static function cycleRestrict ($value, $min, $max) {
+            return $value - floor(($value - $min)/($max - $min)) * ($max - $min);
+        }
+
+        public function getDescription ($tileNumber, $zoom, $style) {
+            $shapes = $this->getPixelShapes($zoom);
+            $shapesDescription = array();
+            $tileLeftBottom = $tileNumber->scale(256);
+            $tileRightTop = $tileNumber->moveBy(new Point(1, 1))->scale(256);
+            $pixelCenter = Point::fromGeoPoint($this->long, $this->lat, $zoom);
+            foreach ($shapes as $shape) {
+                if ($shape->intersects($tileLeftBottom, $tileRightTop)) {
+                    $shapesDescription[] = $shape->getDescription($pixelCenter);
+                }
+            }
+            if ($zoom ==7)
+            	$zoom_fake = -1;
+            if ($zoom ==8)
+            	$zoom_fake = 0;
+            if ($zoom ==9)
+            	$zoom_fake = 1;
+            if ($zoom ==10)
+            	$zoom_fake = 2;
+            if ($zoom ==11)
+            	$zoom_fake = 3;
+            if ($zoom ==12)
+            	$zoom_fake = 4;
+            if ($zoom ==13)
+            	$zoom_fake = 5;
+            if ($zoom ==14)
+            	$zoom_fake = 6;
+            if ($zoom ==15)
+            	$zoom_fake = 7;
+            if ($zoom ==16)
+            	$zoom_fake = 8;
+            if ($zoom ==17)
+            	$zoom_fake = 9;
+            if ($zoom ==18)
+            	$zoom_fake = 10;
+            
+            //style offset
+            //if ($this->stylefake==1)
+            //	$s = 0;
+            //if ($this->stylefake==2)
+            //	$s=
+            //end of style offset
+            
+            $p1 = Point::geoRemoval($this->long, $this->lat, $zoom_fake);
+            $x1 = $p1->getX() - 7; //orig 11
+            $y1 = $p1->getY() - 7;
+            $x2 = $p1->getX() + 7;
+            $y2 = $p1->getY() + 7;
+            //print '555556666666666666666666666666666666666666666666666666666666666666';
+            //print $this->long;
+            //print $this->lat;
+            //print 'experemental function';
+            //
+            //print $p1;
+            //print 'end';
+            //echo json_encode($this->data);
+            //$to_kill   = array("}", "{");
+            $temp = 
+            	'{ "type": "Feature", "properties" :'  . str_replace('}','',json_encode($this->datafake)) . ',' .
+            	'"HotspotMetaData": {'.
+            	'"id": 1,'.
+            	'"RenderedGeometry": { "type": "Rectangle", "coordinates": [' .
+            	'['. $x1.','.$y1. '], ['.$x2.','.$y2.']]'.
+            	'} } }, },';
+            //$temp1 = str_replace('kill',' ',$temp);
+            return $temp;	
+                //'"style":' . json_encode($style) . ',' .
+                //'"base":new YMaps.GeoPoint(' . $this->long . ',' . $this->lat . '),' .
+                //'"geometry":[' . join(',', $shapesDescription) . '],' .
+                //'"priority":' . $this->priority .
+            
+        }
+
+        public function getPriority () {
+            return $this->priority;
+        }
+
+        public function printSelf ($canvas, $tileNumber, $zoom) {
+            $shapes = $this->getPixelShapes($zoom);
+            $tileLeftBottom = $tileNumber->scale(256);
+            $tileRightTop = $tileNumber->moveBy(new Point(1, 1))->scale(256);
+
+            foreach ($shapes as $shape) {
+                if ($shape->intersects($tileLeftBottom, $tileRightTop)) {
+                    $shape->printSelf($canvas, $tileLeftBottom);
+                }
+            }
+        }
+
+        /**
+         * Возвращает массив геометрических фигур, соответствующих
+         * области на данном масштабе
+         * @param Integer $zoom Масштаб
+         * @return Array Массив RectShape
+         */
+        private function getPixelShapes ($zoom) {
+            if (isset($this->cache['zoom']) && ($this->cache['zoom']== $zoom)) {
+                return $this->cache['pixelShapes'];
+            }
+
+            $pixelCenter = Point::fromGeoPoint($this->long, $this->lat, $zoom);
+            $worldSize = 256 * pow(2, $zoom);
+            $left = self::cycleRestrict($pixelCenter->getX() + $this->pixelOffsets[0], 0, $worldSize);
+            $bottom = self::cycleRestrict($pixelCenter->getY() + $this->pixelOffsets[1], 0, $worldSize);
+            $right = self::cycleRestrict($pixelCenter->getX() + $this->pixelOffsets[2], 0, $worldSize);
+            $top = self::cycleRestrict($pixelCenter->getY() + $this->pixelOffsets[3], 0, $worldSize);
+
+            $pixelShapes = array();
+            if ($left <= $right) {
+                 $pixelShapes[] = new RectShape(new Point ($left, $bottom), new Point ($right, $top), $this->style, new Point(0,0));
+            } else {
+                 $pixelShapes[] = new RectShape(
+                     new Point (0, $bottom),
+                     new Point ($right, $top),
+                     $this->style,
+                     new Point($right - $this->style['iconStyle']['size']['x'], 0)
+                 );
+                 $pixelShapes[] = new RectShape(new Point ($left, $bottom), new Point ($worldSize, $top), $this->style, new Point(0,0));
+            }
+
+            $this->cache = array ('zoom' => $zoom, 'pixelShapes' => $pixelShapes);
+            return $pixelShapes;
+        }
+
+        public function getComputedStyle () {
+            return $this->style;
+        }
+    };
+
+?>

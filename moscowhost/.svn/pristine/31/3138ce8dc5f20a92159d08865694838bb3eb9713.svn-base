@@ -1,0 +1,232 @@
+# -*- coding=utf-8 -*-
+from django.contrib.admin.util import unquote
+from django.contrib import admin
+from django.template import RequestContext, loader
+from django.contrib.admin import helpers
+from models import *
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
+from billing.models import BillserviceAccount
+from django.utils.translation import ugettext_lazy as _
+from django.http import HttpResponse, HttpResponseRedirect
+from django.utils.encoding import force_text
+from django.db import transaction
+from django.views.decorators.csrf import csrf_protect
+from django.utils.decorators import method_decorator
+from filters import AllValuesFieldListFilter, DateFieldListFilter
+from excel_response import ExcelResponse
+import log
+
+IS_POPUP_VAR = '_popup'
+
+csrf_protect_m = method_decorator(csrf_protect)
+
+@csrf_protect_m
+@transaction.commit_on_success
+def change_view(self, request, object_id, form_url='', extra_context=None):
+    template = loader.get_template('payment/change.html')
+    model = self.model
+    opts = model._meta
+    obj = self.get_object(request, unquote(object_id))
+    if obj is None:
+        raise Http404(_('%(name)s object with primary key %(key)r does not exist.') % {'name': force_text(opts.verbose_name), 'key': escape(object_id)})
+    ModelForm = self.get_form(request, obj)
+    form = ModelForm(instance=obj)
+    adminForm = helpers.AdminForm(form, self.get_fieldsets(request, obj),
+        self.get_prepopulated_fields(request, obj),
+        self.get_readonly_fields(request, obj),
+        model_admin=self)
+    media = self.media + adminForm.media
+    referer = ('/admin/%s/%s/') % (opts.app_label, opts.module_name)
+    if request.META.has_key('HTTP_REFERER'):
+        referer = request.META['HTTP_REFERER']
+    context = {
+        'HTTP_REFERER': referer,
+        'title': _('Information %s') % force_text(opts.verbose_name),
+        'adminform': adminForm,
+        'object_id': object_id,
+        'original': obj,
+        'is_popup': IS_POPUP_VAR in request.REQUEST,
+        'media': media,
+        'opts':opts,
+        'app_label': opts.app_label, }
+    context = RequestContext(request, context)
+    return HttpResponse(template.render(context))
+
+def export_selected_objects_to_xsl(self, request, queryset, headers=None):
+    return ExcelResponse(self, queryset, headers=headers)
+
+def get_actions(self, request):
+    actions = super(self.__class__, self).get_actions(request)
+    del actions['delete_selected']
+    return actions
+
+class Invoice_comepay_Admin(admin.ModelAdmin):
+    list_display = ('id_payment', 'date', 'pay_account', 'sum', 'service_id', 'created', 'account', 'test', 'login')  # отображаем колонками
+    list_display_links = ('id_payment',)
+    search_fields = ['id_payment', 'pay_account', 'sum', 'service_id', 'account__username', 'login']
+    list_filter = (('created', DateFieldListFilter), 'test', ('service_id', AllValuesFieldListFilter))
+    ordering = ('-date',)
+    readonly_fields = ('id_payment', 'date', 'pay_account', 'sum', 'service_id', 'created', 'account', 'test', 'login',)
+    fieldsets = [(None, {'fields':readonly_fields}), ]
+    actions = ['export_selected_objects_to_xsl', 'payment_process']
+
+
+    def get_actions(self, request):
+        return get_actions(self, request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        try:
+            test = request.META['HTTP_REFERER'].split(request.META['PATH_INFO'])
+            if test and test[-1] and not test[-1].startswith('?') and not request.GET.has_key('test__exact'):
+                model = self.model
+                opts = model._meta
+                return HttpResponseRedirect("/admin/%s/%s/?test__exact=0" % (opts.app_label, opts.module_name))
+        except:
+            pass  # In case there is no referer
+        return super(Invoice_comepay_Admin, self).changelist_view(request, extra_context=extra_context)
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        return change_view(self, request, object_id, form_url='', extra_context=None)
+
+    def export_selected_objects_to_xsl(modeladmin, request, queryset):
+        return export_selected_objects_to_xsl(modeladmin, request, queryset)
+    export_selected_objects_to_xsl.short_description = "Загрузить выбранные объекты в XSL"
+    export_selected_objects_to_xsl.allow_tags = True
+
+    def payment_process(self, request, queryset):
+        for payment in queryset:
+            if payment.service_id == 1:  # пополнение счета
+                trn = Billservice_transaction()
+                trn.bill = 'Пополнение счета через Comepay'
+                trn.account = payment.account
+                trn.type_id = 'COMEPAY_PAYMENT'
+                trn.approved = True
+                trn.tarif_id = 8
+                trn.summ = payment.sum
+                trn.description = "Comepay payment"
+                trn.save()
+
+            elif payment.service_id == 2:
+                log.add("2.1 comepay_manual card")
+                card = None
+                from cards.models import BillserviceCard
+                if payment.login:
+                    log.add("2.1 comepay_manual card exists")
+                    card = BillserviceCard.objects.get(login=payment.login.strip())
+                else:
+                    try:
+                        log.add("2.1 comepay_manual card generate")
+                        """Получаем логин и пароль для карты доступа на указанную сумму"""
+                        card = BillserviceCard.generate_card(float(payment.sum), '1')
+                        payment.login = card.login
+                        payment.save()
+                    except Exception, e:
+                        log.add("2.1 comepay_manual card generate except: %s" % e)
+                        login = password = ''
+
+                if card:
+                    login, password = card.login, card.pin
+                if login and password:
+                    log.add("2.1 comepay_manual send sms")
+                    from lib.sms import send_sms
+                    from payment.settings import SMS_TXT
+                    send_sms(str(payment.pay_account).strip(), SMS_TXT % (login, password))
+                    log.add("2.1 comepay_manual send sms success")
+        return HttpResponseRedirect(request.get_full_path())
+    payment_process.short_description = u"Провести платеж"
+    payment_process.allow_tags = True
+
+
+class MobiInvoice_Admin(admin.ModelAdmin):
+    list_display = ('id', 'payment_id', 'payment_time', 'account', 'login', 'payer_phone', 'desc', 'summ', 'created', 'authorization_time', 'accepted', 'date_accepted', 'deleted')  # отображаем колонками
+    list_display_links = ('id',)
+    search_fields = ['id', 'login', 'payer_phone', 'account__username', 'payment_id' ]
+    list_filter = ('deleted', 'accepted', ('payment_time', DateFieldListFilter), 'desc')
+    readonly_fields = ('payer_address', 'shop_params', 'user_params', 'transaction_id', 'demo', 'payment_id', 'payment_time', 'account', 'login', 'payer_phone', 'desc', 'summ', 'created', 'authorization_time', 'accepted', 'date_accepted', 'deleted')
+    fieldsets = [(None, {'fields':readonly_fields}), ]
+    actions = ['export_selected_objects_to_xsl']
+
+    def get_actions(self, request):
+        return get_actions(self, request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        return change_view(self, request, object_id, form_url='', extra_context=None)
+
+    def export_selected_objects_to_xsl(modeladmin, request, queryset):
+        return export_selected_objects_to_xsl(modeladmin, request, queryset)
+    export_selected_objects_to_xsl.short_description = "Загрузить выбранные объекты в XSL"
+    export_selected_objects_to_xsl.allow_tags = True
+
+
+
+class Billservice_transaction_Admin(admin.ModelAdmin):
+    list_display = ['object_link', 'account', 'type_id', 'bill', 'created', 'summ', ]
+    list_filter = ('type_id', ('created', DateFieldListFilter),)
+    search_fields = ('account__username',)
+    ordering = ('-created',)
+    actions = ['export_selected_objects_to_xsl']
+
+
+    def export_selected_objects_to_xsl(self, request, queryset):
+        list_display = [] + self.list_display
+        list_display.remove(list_display[0])
+        list_display.insert(0, 'id')
+        return export_selected_objects_to_xsl(self, request, queryset, headers=list_display)
+    export_selected_objects_to_xsl.short_description = "Загрузить выбранные объекты в XSL"
+    export_selected_objects_to_xsl.allow_tags = True
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:  # In edit mode
+            return ('description', 'account', 'type_id', 'bill', 'created', 'summ',) + self.readonly_fields
+        return self.readonly_fields
+
+    def get_actions(self, request):
+        return get_actions(self, request)
+
+    def get_form(self, request, obj=None, **kwargs):
+        self.exclude = ('approved', 'tarif_id', 'created', 'systemuser_id', 'promise', \
+                        'end_promise', 'promise_expired', 'accounttarif_id')
+        form = super(Billservice_transaction_Admin, self).get_form(request, obj, **kwargs)
+        return form
+
+    def object_link(self, obj):
+        return '<a href="%s">%s</a>' % ('/admin/payment/billservice_transaction/%s/?created=%s' % (obj.id, obj.created), obj.id,)
+    object_link.allow_tags = True
+
+    def get_object(self, request, obj_id):
+        created = request.GET['created']
+        queryset = self.queryset(request)
+        model = queryset.model
+        try:
+            return queryset.get(pk=obj_id, created=created)
+        except (model.DoesNotExist, ValidationError):
+            return None
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "account":
+            kwargs["queryset"] = BillserviceAccount.objects.order_by('username')
+        return super(Billservice_transaction_Admin, self).formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def change_view(self, request, object_id, extra_context={}):
+        return change_view(self, request, object_id, form_url='', extra_context=None)
+
+    class Media:
+        js = ['/media/js/jquery.min.js',
+              '/media/js/chosen.jquery.js',
+              '/media/js/chosen_select.js']
+        css = {'all':('/media/css/chosen.css',)}
+
+
+
+admin.site.register(Billservice_transaction, Billservice_transaction_Admin)
+admin.site.register(MobiInvoice, MobiInvoice_Admin)
+admin.site.register(Invoice_comepay, Invoice_comepay_Admin)

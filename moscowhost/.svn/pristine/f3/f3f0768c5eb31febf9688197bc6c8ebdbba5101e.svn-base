@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+# coding: utf-8
+import datetime
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from data_centr.models import Data_centr_payment, Zakazy
+from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message, add_record_in_priority_of_services
+from billing.models import BillserviceAccount
+from externalnumbers.models import ExternalNumber
+from findocs.models import Package_on_connection_of_service, FinDocTemplate, FinDocSigned, FinDocSignApplication, FinDoc
+from telnumbers.models import TelNumbersZakazy, TelNumbersGroup
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.db import connections
+from django.core.mail import send_mail
+from settings import DEFAULT_FROM_EMAIL, BILLING_DB
+import log
+
+now = datetime.datetime.now()
+
+# findoc_users = FinDocSigned.objects.filter(findoc__slug='telematic_data_centr', cancellation_date__isnull=True).order_by('signed_by').values('signed_by')
+# # приводим список в порядок
+# spis_user = [i["signed_by"] for i in findoc_users]
+# doc = FinDoc.objects.get(slug='telematic_data_centr')
+# print spis_user
+# exit()
+trunk_user = [1, 24, 28, 249, 305, 433, 446, 447, 453, 501, 4724, 6082, 6333, 7041]
+spis_user = [sys.argv[1]]
+for user_id in spis_user:
+    doc = FinDoc.objects.get(slug='dogovor_poddelka')
+    if spis_user.count(user_id) > 1:
+        print 'more 1 document at user = %s' % user_id
+    else:
+        print '*' * 50
+        print 'create app for user = %s' % user_id
+        app = FinDocSignApplication(
+        assigned_to_id=user_id,
+        assigned_at=now,
+        findoc=doc,
+        user_can_cancel=False,
+        service_for_billing="application_from_a_package"
+        )
+        app.save()
+        print 'app.id = %s' % app.id
+        class abc(object):
+            def __init__(self, app):
+                self.user = app.assigned_to
+        a = abc(app)
+        print 'a = %s' % a.user
+        app_text = app.process_text(request=a, findocapp_id=app.id)
+        print 'get fin doc sign'
+        findoc_sign = FinDocSigned.objects.get(findoc__slug='telematic_data_centr', signed_by__id=user_id, cancellation_date__isnull=True)
+        findoc_sign.signed_text = app_text
+        findoc_sign.save()
+        print 'delete app'
+        app.delete()
+        print 'confirm!'
+        print '*' * 50
+print 'end script'
+

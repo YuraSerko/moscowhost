@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ru" class="nojs">
+
+
+
+<head>
+	<meta charset="utf-8" content="IE=Edge,chrome=1">	
+	<script type="text/javascript" src="{{ MEDIA_URL }}js/jquery-1.7.2.min.js"></script>
+	{% block extrahead %}{% endblock %}
+</head>
+
+
+
+
+<body>
+<div class="wrap">
+
+
+
+<div class="header">
+		{% block header %}
+		<a href="/"><div class="logo">
+			MOSCOW
+			<span class="under">host.su</span>
+		</div></a>
+		<div>
+			<ul class="lu">
+				<li><a class="nav" href="/">Услуги</a></li>
+				<li><a class="nav" href="/payment/webmoney_merchant/">Оплата</a></li>
+				<li><a class="nav" href="#">Новости</a></li>
+				<li><a class="nav" href="#">О компании</a></li>
+				<li><a class="nav" href = "/content/help/">Как пользоваться услугами?</a><li>
+			</ul>
+		</div>
+		<!-- div class="login">
+			<div style="display: inline-block;"-->
+			
+			<!-- убираем ссылки на лк ильи
+			<a class="a_desc" href="account.html" style="display: inline-block; margin-top: -15px;">
+			Привет, USER123123</a><p>
+			<div class="ctr">
+				<a class="a_desc" href="account.html"><span style="display: inline-block; float: left; margin: 4px 4px 4px 70px;">Выход</span></a>
+				<div class="im"></div>
+				</div>
+			-->
+
+			<!-- /div> <!-- div за login -->
+		<!-- /div> <!-- end div class login -->
+		
+		{% endblock %} <!-- endblock header -->	
+		
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- сюда содержимое страницы -->
+{% block wrapper %}
+	{% block main %}
+			
+			
+	{% endblock %}
+	
+	
+{% endblock %}
+<!-- окончание содержимого страницы -->
+
+
+
+
+
+<div class="footer">
+		{% block footer %}
+		<div class="head_footer">КОНТАКТЫ</div>
+		<div class="head_footer">CОЦИАЛЬНЫЕ СЕТИ</div>
+		<div class="head_footer">ПОМОЩЬ</div>
+		<div class="container">
+			<div class="inform">
+				<div style="height: 45px;"><img class="img_inf" src="{{ MEDIA_URL }}pictures/phone.png"/><span style="color:#fff" class="text_inf">+7(495)66-00-887(Москва)</span></div>
+				<div style="height: 45px;"><a href="skype:moscowdata"><img class="img_inf" src="{{ MEDIA_URL }}pictures/skype.png"/><span class="text_inf">moscowdata</span></a></div>
+				<div style="height: 45px;"><a href="icq:366-574-841"><img class="img_inf" src="{{ MEDIA_URL }}pictures/icq.png"/><span class="text_inf">366-574-841</span></a></div>
+				<div style="height: 45px;"><a href="mailto:sales@moscowdata.ru"><img class="img_inf" src="{{ MEDIA_URL }}pictures/mail.png"/><span class="text_inf">sales@moscowdata.ru</span></a></div>
+			</div>
+			<div class="inform">
+			<div style="display:inline-block; margin: auto;">
+				<a href="#"><img class="vk social" src="{{ MEDIA_URL }}pictures/vk_white.png" onmouseover="this.src='{{ MEDIA_URL }}pictures/vk_blue.png'" onmouseout="this.src='{{ MEDIA_URL }}pictures/vk_white.png'"></a>
+				<a href="#"><img class="fb social" src="{{ MEDIA_URL }}pictures/fb_white.png" onmouseover="this.src='{{ MEDIA_URL }}pictures/fb_blue.png'" onmouseout="this.src='{{ MEDIA_URL }}pictures/fb_white.png'"></a>
+				<a href="#"><img class="tw social" src="{{ MEDIA_URL }}pictures/twitter_white.png" onmouseover="this.src='{{ MEDIA_URL }}pictures/twitter_blue.png'" onmouseout="this.src='{{ MEDIA_URL }}pictures/twitter_white.png'"></a>
+			</div>
+			</div>
+			<div class="inform">
+					<div style="height: 45px;"><a href="#"><img class="img_inf" src="{{ MEDIA_URL }}pictures/help.png"/><span class="text_inf">Как пользоваться услугами?</span></a></div>
+					<div style="height: 45px;"><a href="#"><img class="img_inf" src="{{ MEDIA_URL }}pictures/sitemap.png"/><span class="text_inf">Карта сайта</span></a></div>
+			</div>
+		</div>
+		<div style="margin-top: 30px; float: left; color: #414141; width: 100%"><div style="text-align: center; width: 100%">Copyright © 2007-2015 Телеком-Вист. All right reserved</div></div>
+		{% endblock %}
+</div>
+
+
+	
+</div> <!-- end wrap -->
+
+
+{% block account_change %} <!--блок регистрации/логирования пользователя только base_public-->
+{% endblock %}
+
+
+
+
+
+
+
+</body>
+
+
+
+
+</html>

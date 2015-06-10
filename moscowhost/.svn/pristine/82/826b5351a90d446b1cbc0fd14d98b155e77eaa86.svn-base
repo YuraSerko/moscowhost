@@ -1,0 +1,32 @@
+# -*- coding=UTF-8 -*-
+
+from email.mime.text import MIMEText
+import time, smtplib, email.utils
+
+receivers = ('fora11@yandex.ru', 'noc@globalhome.su', 'katie@globalhome.su')
+
+LETTER = ''
+def send_mail(FROM_MAIL, PASS, TO_MAIL, SUBJECT, TEXT):
+    msg = MIMEText(TEXT, "", "utf-8")
+    msg['To'] = email.utils.formataddr(('Sender: ', TO_MAIL))
+    msg['From'] = email.utils.formataddr(('No money on these providers: ', FROM_MAIL))
+    msg['Subject'] = SUBJECT
+    username = FROM_MAIL
+    try:
+        server = smtplib.SMTP('smtp.gmail.com:587')
+        server.starttls()
+        server.login(username, PASS)
+        server.sendmail(FROM_MAIL, TO_MAIL, msg.as_string())
+        server.quit()
+        print "Message is sent to %s\n" % (msg['To']),
+    except Exception, e:
+        print "Message isn't sent to %s\n" % (msg['To'])
+        print e
+
+def send_letter(letter):
+    FROM_MAIL = 'noreply@globalhome.su'
+    PASS = 'yjhtgkb(*$'
+    SUBJECT = 'Интернет провайдеры пополнение баланса'
+    if letter != '':
+        for receiver in receivers:
+            send_mail(FROM_MAIL, PASS, receiver, SUBJECT, letter)

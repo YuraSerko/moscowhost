@@ -1,0 +1,443 @@
+# coding: utf-8
+import sys, os
+import time
+from grab import Grab
+from lxml import html
+import urllib2, urllib, cookielib
+from BeautifulSoup import BeautifulSoup
+import logging
+import re
+import trans
+import traceback
+
+
+
+# from beeline import converse_str_to_int, ExceptionPageDontAvalaible, ExceptionChangeLocationOfTags, ExceptionIncorrectData
+
+print 'BEGIN'
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from grab import Grab
+from hotspot.models import Video
+from hotspot.models import VideoGenre
+import datetime
+
+
+def base_save(orig_title, title, paramd, video_type, genres_list, serial=False):
+    try:
+        for vid_o in Video.objects.all():
+            if orig_title:
+                #print orig_title
+                if vid_o.orig_title.strip().encode('utf-8') == orig_title.strip().encode('utf-8'):
+                    print "exist orig_title in db"
+                    return 1
+                
+                    print "=========================="
+                    print "1"+vid_o.orig_title.encode('utf-8')+"2"
+                    print "1"+orig_title.encode('utf-8')+"2"
+                    print "=========================="
+
+                    
+
+            else:
+                #print title
+                #for vid_o in Video.objects.all():
+                if vid_o.title.strip().encode('utf-8') == title.strip().encode('utf-8'):
+                    print "exist title in db"
+                    return 1
+
+
+        #if orig_title:
+        #    vname_exist = Video.objects.get(orig_title=orig_title.encode('utf-8'))  # не совпадает оригинальное название и год
+        #else:
+        #    vname_exist = Video.objects.get(title=title)
+        raise Video.DoesNotExist
+    except Video.DoesNotExist:
+
+        v = Video(source=1, orig_title=paramd["orig_title"], title=paramd["title"],
+                   genres_client_view=paramd["genres_client_view"],
+                   video_type=video_type, player_video_url=paramd["player_video_url"],
+                   image_link=paramd["image_link"], premiere_date=paramd["premiere_date"],
+                   description=paramd["description"],
+                   quality=paramd["quality"],
+                   sound=paramd["sound"],
+                   director=paramd["director"],
+                   cast=paramd["cast"],
+                   time=paramd["time"],
+                   budget=paramd["budget"],
+                   age_restrictions=paramd["age_restrictions"],
+                   screenplay=paramd["screenplay"],
+                   label_text=paramd['label_text'],
+                   one_serial_links=paramd['one_serial_links'],
+                   date_aded=datetime.datetime.now(),
+                   translit_video_name=paramd['translit_video_name']
+                   # ,rating = 4
+                  )
+
+        v.save()
+        print "save1"
+        for gl in genres_list:
+            # print gl
+            vg = VideoGenre(id=gl)
+            # print vg
+            v.genres.add(vg)
+        # sys.exit()
+        v.save()
+
+        print "save2"
+        if serial:
+            return 1
+    except Exception, e:
+        print e
+        if serial:
+            print "serial save"
+            return 1
+        else:
+            pass
+
+def find_img(one_video_html, serial=False):
+    tag = False
+    try:
+        if serial:
+            tag = one_video_html.find("div", {"class":"rt-article-content"})  # .contents: #.findAll("img") #.get("src")
+        else:
+            last_img_url = one_video_html.find("div", {"class":"module-br"}).find("img").get("src")
+    except Exception, e:
+        print traceback.print_exc()
+        return 1
+    if tag:
+        tagsStartingWith_img = tag.findAll(re.compile('^img'))
+        if len(tagsStartingWith_img) > 1:
+            last = tagsStartingWith_img[4]
+            last_img_url = tagsStartingWith_img[4].get("src")
+        else:
+            last_img_url = tag.find("img").get("src")
+
+    if last_img_url.find('granata') != -1 or last_img_url.find('ymka') != -1:
+        url = last_img_url  # Ссылка на рисунок сериала абсолютная
+    else:
+        url = 'http://ymka.tv' + last_img_url
+    return url
+
+def translit(title, orig_title):
+    if title:
+        # print type(title)
+        translit_video_name = unicode(title).lower().encode('trans')
+    else:
+        translit_video_name = unicode(orig_title).lower().encode('trans')
+    return translit_video_name.replace(' ', '').replace(',', '').replace('-', '').replace(':', '').replace('!', '').replace(u'—', '').replace('.', '').replace('(', '').replace(')', '').replace('?', '')
+
+def Parse_one_page(adres):
+    time.sleep(25)
+    ymka_genre = { 1:u"боевик", 2:u"военн", 3:u"детектив",
+                   4:u"драм", 5:u"истори", 6:u"комеди", 7:u"мелодрам",
+                   8:u"мистика", 9:u"приключен", 10:u"триллер", 11:u"ужасы",
+                   12:u"фантасти", 13:u"вестерн", 14:u"биограф",
+                   15:u"катастроф", 16:u"криминал",
+                   17:u"спорт", 18:u"фэнтэзи"}  # 13:u"эротика", , 21:u"сказка" 18:u"музыка",
+    # ADRESS = 'http://ymka.tv/load/novinki/plastik_2014/66-1-0-2237'
+
+    params_match = {u"Оригинальное название":u"orig_title", u"Русское название":u"title",
+                    u"Премьера": u"premiere_date", u"Жанр":u"genres_client_view", u"Качество":u"quality",
+                    u"Звук":u"sound", u"Режиссер":"director", u"В главных ролях":u"cast", u"Время":u"time",
+                    u"Бюджет":u"budget", u"Ограничения":u"age_restrictions",
+                    u"Сценарий":u"screenplay"
+                    }
+
+    if key == 'serial':
+        print 'serial'
+        video_type = 2
+        print adres
+        time.sleep(6)
+        try:
+            res = urllib.urlopen(adres).read()
+            one_video_html = BeautifulSoup(str(res))
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        paramd = {}
+        paramd["player_video_url"] = ""
+        paramd["orig_title"] = ""
+        paramd["title"] = ""
+        paramd["premiere_date"] = ""
+        paramd["genres_client_view"] = ""
+        paramd["quality"] = ""
+        paramd["sound"] = ""
+        paramd["director"] = ""
+        paramd["cast"] = ""
+        paramd["time"] = ""
+        paramd["budget"] = ""
+        paramd["age_restrictions"] = ""
+        paramd["screenplay"] = ""
+        paramd["year"] = ""
+        paramdplayer_video_url = ''
+        paramd['label_text'] = ''
+        paramd['one_serial_links'] = ''
+        paramd['translit_video_name'] = ''
+        label_text = ''
+        one_serial_links = ''
+
+        try:  # Ссылки для одного сериала
+            for serial_link in one_video_html.find('select', {'name':'select_items'}).findAll('option'):
+                one_serial_links = one_serial_links + "| " + serial_link.get('value').encode('utf-8')  # .findAll('option'):
+                label_text = label_text + "| " + serial_link.text.encode('utf-8')
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        paramd['label_text'] = label_text  # .encode('utf-8')
+        paramd['one_serial_links'] = one_serial_links
+        try:
+            for f in one_video_html.findAll("iframe"):
+                got_video = False
+                # take contact if not video2.ymka.tv
+                if not(got_video) and (f.get("src").find('vk') != -1):
+                    urlstr = f.get("src")
+                    paramd["player_video_url"] = str(urlstr).replace('amp;', '')  # param13 # all workgin wel
+
+                    got_video = True
+                if paramd["player_video_url"] == "":
+                    pass
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        orig_title = ''
+        title = ''
+        try:
+            for param in one_video_html.find("div", {"class":"module-br"}).findAll("strong"):
+                # print param.text
+                for k in params_match.keys():
+                    if param.text == k:
+                        paramd[params_match[k]] = param.nextSibling[2:]
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        print "-----------------"
+        print paramd['title'].encode('utf-8')
+        print paramd['orig_title'].encode('utf-8')
+        print "--------------"
+        paramd['translit_video_name'] = translit(paramd['title'], paramd['orig_title'])
+        time.sleep(5)
+        paramd["description"] = one_video_html.find("div", {"class":"rt-article-content"}).contents[0].replace("\n", "")  # param
+
+        paramd['image_link'] = find_img(one_video_html, serial=True)
+
+        genres_array_st = paramd["genres_client_view"]
+        print genres_array_st.encode('utf-8')
+        geners_array = genres_array_st.split(', ')
+        genres_list = []
+        for i in geners_array:
+            # print 'genre'
+            for gk, gv in ymka_genre.items():
+                # print gv
+                if  i.find(gv) != -1:
+                    genres_list.append(gk)
+
+        # print genres_list
+
+        if paramd["player_video_url"] != "":
+            base_save(orig_title=paramd["orig_title"], title=paramd["title"], paramd=paramd, video_type=video_type, genres_list=genres_list, serial=True)
+
+    else:  # Фильмы
+        video_type = 1
+    # adres = 'http://ymka.tv/load/komedii/ja_ne_znaju_kak_ona_delaet_ehto/4-1-0-915'
+    # adres = 'http://ymka.tv/load/boeviki/vspomnit_vsjo_1990/3-1-0-1019'
+    # print adres
+    try:
+        """cookie_file = 'mfp.cookies'
+        cj = cookielib.MozillaCookieJar(cookie_file)
+        opener = urllib2.build_opener(
+             urllib2.HTTPRedirectHandler(),
+             urllib2.HTTPHandler(debuglevel=0),
+             urllib2.HTTPSHandler(debuglevel=0),
+             urllib2.HTTPCookieProcessor(cj)
+        )
+
+        
+        opener.addheaders = [('User-agent', 'User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64; rv:30.0) Gecko/20100101 Firefox/30.0'),
+                              ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+                              ('Accept-Encoding', 'gzip, deflate'),
+                              ('Accept-Language', 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3'),
+                              ('Cache-Control', 'max-age=0'),
+                              ('Connection', 'keep-alive'),
+                              ('Cookie', '4dimernw=ci2mKsZTPy1QLsZTOC1EJ8ZT4Sv8UMZTkivwUcZTJS00KMZTvSaOZ8ZT; 4dimeruzll=1405495109'),
+                              ('Host', 'www.lovekinozal.ru'),
+                              ('DNT', '1'),
+                              ]
+        
+        res = opener.open(adres).read()"""
+
+        res = urllib.urlopen(adres).read()
+        soup = BeautifulSoup(str(res))
+    except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+    for link in soup.findAll("a", {"class":"readon"}):
+        paramd = {}
+        paramd["player_video_url"] = ""
+        paramd["orig_title"] = ""
+        paramd["title"] = ""
+        paramd["premiere_date"] = ""
+        paramd["genres_client_view"] = ""
+        paramd["quality"] = ""
+        paramd["sound"] = ""
+        paramd["director"] = ""
+        paramd["cast"] = ""
+        paramd["time"] = ""
+        paramd["budget"] = ""
+        paramd["age_restrictions"] = ""
+        paramd["screenplay"] = ""
+        paramd["year"] = ""
+        paramd['label_text'] = ''
+        paramd['one_serial_links'] = ''
+        paramd['translit_video_name'] = ''
+        # paramd["genre"] = ""
+        # paramd["cast"] = ""
+        # paramd["time"] = ""
+        time.sleep(7)
+        ADRESS_one_video = link.get("href")
+        try:
+            one_v = urllib.urlopen(ADRESS_one_video).read()
+            one_video_html = BeautifulSoup(str(one_v))
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        got_video = False
+        # take contact if not video2.ymka.tv
+        try:
+            for f in one_video_html.findAll("iframe"):
+
+                if not(got_video) and (f.get("src").find('vk') != -1):
+                    urlstr = f.get("src")
+                    paramd["player_video_url"] = str(urlstr).replace('amp;', '')  # param13 # all workgin wel
+                    got_video = True
+
+            if paramd["player_video_url"] == "":
+                pass
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        orig_title = ''
+        title = ''
+        try:
+            for param in one_video_html.find("div", {"class":"module-br"}).findAll("strong"):
+                # print param.text
+                for k in params_match.keys():
+                    if param.text == k:
+                        paramd[params_match[k]] = param.nextSibling[2:]
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+
+        print "---------------"
+        print paramd["orig_title"].encode('utf-8')
+        print paramd["title"].encode('utf-8')
+        print "---------------"
+        paramd['translit_video_name'] = translit(paramd['title'], paramd['orig_title'])
+        time.sleep(5)
+        paramd["description"] = one_video_html.find("div", {"class":"module-br"}).find("div", {"class":"eMessage"}).contents[0].replace("\n", "")  # param
+
+        paramd['image_link'] = find_img(one_video_html)
+
+
+        genres_array_st = paramd["genres_client_view"]
+        # print genres_array_st.encode('utf-8')
+        geners_array = genres_array_st.split(', ')
+        genres_list = []
+        for i in geners_array:
+            # print 'genre'
+            for gk, gv in ymka_genre.items():
+                # print gv
+                if  i.find(gv) != -1:
+                    genres_list.append(gk)
+
+        if paramd["player_video_url"] != "":
+            base_save(orig_title=paramd["orig_title"], title=paramd["title"], paramd=paramd, video_type=video_type, genres_list=genres_list, serial=False)
+
+        paramd = {}
+        print 'END'
+
+
+adreses = {'detective':u'http://ymka.tv/load/detektiv/72-1-3', 'serial': u'http://ymka.tv/publ/2-1-0-112', 'new_films': u'http://ymka.tv/load/novinki/66-1-2', 'horror': u'http://ymka.tv/load/uzhasy/2-1-3', 'drama': 'http://ymka.tv/load/1-1-3',
+'boeviki':u'http://ymka.tv/load/boeviki/3-1-3', 'comedi':u'http://ymka.tv/load/komedii/4-1-3',
+'triller':u'http://ymka.tv/load/trillery/7-1-3', 'melodrami':u'http://ymka.tv/load/melodramy/5-1-3', 'fantastic':u'http://ymka.tv/load/fantastika/6-1-3',
+'adventure':u'http://ymka.tv/load/prikljuchenija/8-1-3',
+'history': u'http://ymka.tv/load/istoricheskie/9-1-3'}
+adreses = {'serial': u'http://ymka.tv/publ/2-1-0-112'} #  Раскоментить на последующие разы
+adreses = {'new_films': u'http://ymka.tv/load/novinki/66-1-2', 'serial': u'http://ymka.tv/publ/2-1-0-112'} #  Раскоментить на последующие разы
+#adreses = {'new_films': u'http://ymka.tv/load/novinki/66-1-2'}
+for key, adres in adreses.iteritems():
+    ADRESS = adreses[key]
+    try:
+
+        res = urllib.urlopen(ADRESS).read()  # Предыдущий вариант без хедеров
+        soup = BeautifulSoup(str(res))
+
+        # print res.read().decode('utf-8')
+        # sys.exit()
+        # soup = BeautifulSoup(str(res ) )
+    except Exception, e:
+        print traceback.print_exc()
+        continue  # Усли происходит дисконнект, чтобы скрипт не переставал работать
+
+    def get_number_pages():
+        # pages =30
+        try:
+            count_pages = soup.findAll("span", {"class":"pagesBlockuz1"})
+        except Exception, e:
+            print traceback.print_exc()
+            return 1
+        for s in count_pages:
+            pages = s.findAll('span')[-2]
+        pages = str(pages).replace('<span>', '').replace('</span>', '')
+        print "Колличество страниц = " + str(pages)
+        return pages
+
+    def Parse_pages_section(pages):
+        
+        if key == 'new_films': # Парсить первые 2 страницы новинок
+            pages = 2
+            for index in  range(1, int(pages)+1):
+                ADRESS = adreses[key].replace('-1-', "-"+str(index)+"-") # Убрать '+32'
+                #ADRESS = 'http://ymka.tv/load/uzhasy/2-32-3'
+                print ADRESS
+                Parse_one_page(ADRESS)
+        else:
+            for index in  range(1, int(pages)+1):
+                ADRESS = adreses[key].replace('-1-', "-"+str(index)+"-") # Убрать '+32'
+                #ADRESS = 'http://ymka.tv/load/uzhasy/2-32-3'
+                print ADRESS
+                Parse_one_page(ADRESS)
+    if key == 'serial':
+        try:
+            serial_links = soup.findAll('p', {"class":"linked"})
+        except Exception, e:
+            print traceback.print_exc()
+
+        for ser in  serial_links:
+            links = ser.findAll('a')
+            for l in links[158:]:  # Убрать
+                end_links = l.get('href')
+                print end_links
+                whole_links = 'http://ymka.tv' + end_links
+
+                if whole_links.find('1-1-0') != -1 or whole_links.find('2-1-0') != -1:
+
+                    print whole_links
+                    # whole_links = 'http://ymka.tv/publ/zarubezhnye_teleserialy/jasnovidec_vse_serii/2-1-0-109'
+                    Parse_one_page(whole_links)
+
+    if key != 'serial':
+
+        pages = get_number_pages()
+        Parse_pages_section(pages)
+
+
+

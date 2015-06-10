@@ -1,0 +1,16 @@
+# -*-coding:utf-8 -*-
+
+from django.utils.translation import ugettext_lazy as _
+from django import forms
+from settings import QIWI_CURRENCY
+import decimal
+
+class QiwiPaymentRequestForm(forms.Form):
+    phone = forms.CharField(min_length=10, max_length=10, label=u"Номер телефона в QIWI", help_text=_(u"(без скобок, пробелов и разделителей. Пример 9991234567)"))
+    summ = forms.DecimalField(max_value=decimal.Decimal('15000'), min_value=decimal.Decimal('1'), max_digits=7, decimal_places=2, label=u'%s' % QIWI_CURRENCY, help_text=_(u"Максимальная сумма платежа 15000"))
+
+class QiwiPaymentRequestFormCard(forms.Form):
+    amount = forms.IntegerField(initial=50, required=True, min_value=10, label=u"Номинал карты в рублях", help_text=_(u"Укажите сумму в рублях"))
+    phone = forms.CharField(min_length=10, max_length=10, label=u"Номер телефона в QIWI", help_text=_(u"(без скобок, пробелов и разделителей. Пример 9991234567)"))
+    email = forms.EmailField(label=_(u'Адрес электронной почты'), required=False, help_text=_(u"На этот адрес вам прийдет логин и пароль приобритаемой карты"))
+    phone_sms = forms.CharField(min_length=11, max_length=11, label=u"Номер мобильного телефона для получения логина и пароля карты посредством SMS", help_text=_(u"(полный номер с кодом страны, без скобок, пробелов и разделителей. Пример 79991234567)"))

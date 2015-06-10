@@ -1,0 +1,60 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys, os
+import datetime
+import copy
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from billing.models import BillserviceAccount
+from data_centr.models import Zakazy, Data_centr_payment, Return_payment
+from data_centr.views import send_mail_check, add_document_in_dict_for_send
+from account.models import Profile
+from findocs.models import Rules_of_drawing_up_documents, Check, Act, Invoice, FinDocSigned, Package_on_connection_of_service
+from django.contrib.auth.models import User
+from django.db.models import Q
+from django.db import connections
+from dateutil.relativedelta import relativedelta
+from payment.models import Billservice_transaction
+from lib.mail import send_email
+from django.conf import settings
+
+body_message = u'''Компания "Телеком-Вист" приносит свои извинения за техническое неполадки 26.02.2014.\n
+                В связи с этим, мы зачисляем на Ваш счет 20% от суммы оплаты по каждой подключенной у Вас услуге!\n
+                С уважением, компания "Телеком-Вист"'''
+spis_bill_account = []
+return_payment_qs = Return_payment.objects.all()
+all_count = len(return_payment_qs)
+i = 0
+for return_payment_obj in return_payment_qs:
+    i += 1
+    print '%s/%s' % (i, all_count)
+    if not return_payment_obj.return_payment:
+        print 'return money'
+        payment_obj = return_payment_obj.payment
+        twenty_procent_summ = payment_obj.cost / 5
+        transaction_obj = Billservice_transaction(
+                                                  bill=u'Компенсация за технические проблемы по предоставлению услуги 20%',
+                                                  account=payment_obj.bill_account,
+                                                  type_id=u'TECHNICAL_PROBLEMS',
+                                                  approved=True,
+                                                  summ=twenty_procent_summ,
+                                                  description=u'Компенсация за технические проблемы по предоставлению услуги 20%%, заказ №%s' % payment_obj.zakaz.id,
+                                                  created=datetime.datetime.now(),
+                                                  )
+        transaction_obj.save()
+        return_payment_obj.return_payment = True
+        return_payment_obj.save()
+for return_payment_obj in return_payment_qs:
+    payment_obj = return_payment_obj.payment
+    spis_bill_account.append(payment_obj.bill_account.id)
+sort_spis = list(set(spis_bill_account))
+for bill_id in sort_spis:
+    qs_mail = Return_payment.objects.filter(payment__bill_account__id=bill_id, send_mail=False)
+    if qs_mail:
+        print 'send_mail'
+        send_email(u"Извинения от globalhome.su", "%s" % body_message, settings.DEFAULT_FROM_EMAIL, ["41kc@mail.ru"])
+    for return_payment_obj in qs_mail:
+        return_payment_obj.send_mail = True
+        return_payment_obj.save()
+print 'end script at %s' % datetime.datetime.now()
+

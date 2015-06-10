@@ -1,0 +1,32 @@
+<head>
+	<meta charset="UTF-8">
+<head>
+
+
+
+<style>
+
+.info_table{
+color:black;
+}
+
+#info_div {
+color:black;
+}
+
+</style>
+
+
+
+
+{{ template_all|safe }}
+
+<script>
+	//alert(1);
+	function fun1(param){
+		//alert(param);
+		//go_to = '#' + param;
+		//$('#id_popup_info').animate({ scrollTop: $(go_to).offset().top -860}, 'fast');  сколлит но нужно какое-то слишком большое смещение
+	
+	}
+</script>

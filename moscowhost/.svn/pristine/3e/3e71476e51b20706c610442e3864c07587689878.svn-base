@@ -1,0 +1,20 @@
+# coding: utf-8
+
+import sys, os
+import traceback
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from hotspot.models import Video
+
+ob_for_del_spaces = Video.objects.all()
+
+for one_ob in ob_for_del_spaces:
+    if one_ob.title:
+        one_ob.title = one_ob.title.strip()
+        one_ob.save()
+    if one_ob.orig_title:
+        one_ob.orig_title = one_ob.orig_title.strip()
+        one_ob.save()
+    if one_ob.translit_video_name:
+        one_ob.translit_video_name = one_ob.translit_video_name.strip()
+        one_ob.save()

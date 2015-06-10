@@ -1,0 +1,310 @@
+#!/usr/bin/env python
+# -*-coding=utf-8-*-
+
+import cookielib
+import logging
+import urllib
+import urllib2
+
+def send_mail(mail_from, password, mail_to, subject, text, servername="smtp.gmail.com", files=[], performDebugging=False, name_from='', name_to=''):
+    import smtplib
+    import os
+    import email.utils
+    from email.MIMEMultipart import MIMEMultipart
+    from email.MIMEBase import MIMEBase
+    from email.MIMEText import MIMEText
+    from email.Utils import COMMASPACE, formatdate
+    from email import Encoders
+    # assert type(send_to)==list
+    assert type(files) == list
+
+
+    msg = MIMEMultipart()
+    msg.set_charset('utf-8')
+    msg['From'] = email.utils.formataddr((name_from, mail_from))
+    msg['To'] = email.utils.formataddr((name_to, mail_to))
+    msg['Subject'] = subject
+    msg['Date'] = formatdate(localtime=True)
+    msg.attach(MIMEText(text, 'html' if 'html' in text.lower() else ''))
+    msg.set_charset('utf-8')
+    for f in files:
+        part = MIMEBase('application', "octet-stream")
+        part.set_payload(open(f, "rb").read())
+        Encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(f))
+        msg.attach(part)
+    server = smtplib.SMTP(servername)
+    try:
+        server.set_debuglevel(performDebugging)
+        # start the SMTP twitter
+        server.ehlo()
+        # start encryption if feature is supported by server
+        if server.has_extn('STARTTLS'):
+            server.starttls()
+            # restart SMTP session over TLS connection
+            server.ehlo()
+            server.login(mail_from, password)
+            server.sendmail(mail_from, mail_to, msg.as_string())
+    finally:
+        server.quit()
+
+def send_mails(text, mails, user_noc, pass_noc, smtp_noc, log):
+    for mail in mails:
+        i = 2
+        while i:
+            i -= 1
+            try:
+                send_mail(user_noc, pass_noc, mail, text, text, smtp_noc, [])
+                log.error(u'Письмо успешно отправлено для %s' % mail)
+                break
+            except Exception, x:
+                log.error(u'Невозможно отправить письмо для %s: %s' % (mail, x))
+
+def get_minutes_mts(login, password, log):
+    """Функция подключается к issa и возвращает количество бесплатных минут на MTS"""
+    site_login = 'https://login.mts.ru/amserver/UI/Login/'
+    site_minutes = 'https://ihelper.mts.ru/selfcare/account-status.aspx'
+
+    ok = True
+    i = 0
+    while ok:
+        i += 1
+        if i >= 4:
+            minutes = -1
+            balance = -1
+            log.info(u'get_minutes_mts: Исчерпано кол-во попыток получения минут')
+            break
+        try:
+            cj = cookielib.CookieJar()
+            opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+            opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ru; rv:1.9.2.22) Gecko/20110902 Firefox/3.6.22')]
+            urllib2.install_opener(opener)
+
+            login_data = urllib.urlencode({'CSRTFoken': '',
+                                           'IDToken1':  login,
+                                           'IDToken2':  password,
+                                           'IDButton':  'Вход в Личный кабинет',
+                                           'goto':      '',
+                                           'encoded':   'false',
+                                           'loginURL':  '',
+                                           })
+            resp = opener.open(site_login, login_data, timeout=120)
+            resp = opener.open(site_minutes, timeout=120)
+            res = resp.read()
+            # log.info(res.decode('utf-8'))
+            # exit()
+            try:
+                m1 = res[res.find("""<li>Осталось:""") + 21:]
+                minutes = int(m1[:m1.find(" минут")].strip())
+                b = res[res.find("""<th>Ваш текущий баланс"""):]
+                b1 = b[b.find("""<strong>""") + 8:]
+                balance = float(b1[:b1.find(" руб.")].replace(',', '.').strip())
+            except Exception, e:
+                log.info(u'get_minutes_mts: Не удалось получить кол-во минут:"%s"' % e)
+                balance = -2
+                minutes = -2
+
+            ok = False
+        except Exception, x:
+            log.info(u"get_minutes_mts: Ошибка открытия страницы:%s" % (x,))
+            minutes = -3
+            balance = -3
+
+    return minutes, balance
+
+def set_redirect_mts(login, password, to_number, log):
+    """Функция подключается к issa и и устанавливает безусловную переадрессацию на указанный номер"""
+    site_login = 'https://login.mts.ru/amserver/UI/Login/'
+    # site = "https://lk.ssl.mts.ru/"
+    site_redirect = 'https://ihelper.mts.ru/selfcare/call-forwarding.aspx'
+
+    ok = True
+    i = 0
+    while ok:
+        i += 1
+        if i >= 4:
+            r = -1
+            log.info(u'set_redirect_mts: Исчерпано кол-во попыток установки переадрессации')
+            break
+        try:
+            cj = cookielib.CookieJar()
+            opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+            opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ru; rv:1.9.2.22) Gecko/20110902 Firefox/3.6.22')]
+            urllib2.install_opener(opener)
+
+            login_data = urllib.urlencode({'CSRTFoken': '',
+                                           'IDToken1':  login,
+                                           'IDToken2':  password,
+                                           'IDButton':  'Вход в Личный кабинет',
+                                           'goto':      '',
+                                           'encoded':   'false',
+                                           'loginURL':  '',
+                                           })
+            # print login_data
+            resp = opener.open(site_login, login_data)
+            # resp = opener.open(site_minutes)
+            # res = resp.read()
+            # #log.info(res.decode('utf-8'))
+            # try:
+            #    m1 = res[res.find("""<li>Осталось:""") + 21:]
+            #    minutes = int(m1[:m1.find(" минут")].strip())
+            # except:
+            #    minutes = 0
+            #    status = 'Не удалось получить кол-во минут'       #family = m[m.find("<div>") + 5:m.find("</div>")].strip()
+            # print "'%s'" % minutes
+
+            resp = opener.open(site_redirect)
+            res = resp.read()
+            r = res[res.rfind('"__VIEWSTATE" value="') + 21:]
+            viewstate = r[:r.find('" />')]
+            r = res[res.rfind('"__EVENTVALIDATION" value="') + 27:]
+            eventvalidation = r[:r.find('" />')]
+            redirect_data = urllib.urlencode({'ctl00_sm_HiddenField':       '',
+                                              '__EVENTTARGET':              'ctl00$MainContent$grid',
+                                              '__EVENTARGUMENT':            'EDIT@0@-1',
+                                              '__VIEWSTATE':                viewstate,
+                                              '__EVENTVALIDATION':          eventvalidation,
+                                              'ctl00_MainContent_grid$col': '',
+                                              'ctl00_MainContent_grid$row': '0|-1|0',
+                                              })
+            resp = opener.open(site_redirect, redirect_data)
+
+            res = resp.read()
+            r = res[res.rfind('"__VIEWSTATE" value="') + 21:]
+            viewstate = r[:r.find('" />')]
+            r = res[res.rfind('"__EVENTVALIDATION" value="') + 27:]
+            eventvalidation = r[:r.find('" />')]
+            r = res[res.rfind('ctl00$MainContent$multipleSubmitPreventer" value="') + 50:]
+            preventer = r[:r.find('"')]
+            redirect_data2 = urllib.urlencode({'ctl00_sm_HiddenField':       '',
+                                              '__EVENTTARGET':              'ctl00$MainContent$grid',
+                                              '__EVENTARGUMENT':            'EDIT@0@-1',
+                                              '__VIEWSTATE':                viewstate,
+                                              '__EVENTVALIDATION':          eventvalidation,
+                                              'cf_condition_radio':         '1',
+                                              'cf_address_radio':           '2',
+                                              'ctl00$MainContent$customAddressBox': to_number,
+                                              'ctl00$MainContent$okButton': 'Применить',
+                                              'ctl00$MainContent$multipleSubmitPreventer': preventer,
+                                              })
+            resp = opener.open(site_redirect, redirect_data2)
+            res = resp.read()
+            # log.info(res.decode('utf-8'))
+            if 'ошибка' in res.lower():
+                r = -2
+            else:
+                r = 1
+            ok = False
+
+        except Exception, x:
+            log.info(u"set_redirect_mts: Ошибка открытия страницы:%s" % (x,))
+            r = -3
+    return r
+
+import datetime, time
+
+def first_date_m():
+    now = datetime.datetime.now()
+    month = now.month
+    year = now.year
+    return datetime.date(year, month, 1)
+# print time.localtime()[3], time.localtime()[4]
+# exit()
+
+if __name__ == '__main__':
+    LOG_FILENAME = 'mts_check.log'
+    # create Logging
+    formatter = logging.Formatter(u"%(asctime)s - %(levelname)s - %(message)s")
+    formatter_ch = logging.Formatter(u"%(asctime)s - %(message)s")
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter_ch)
+    fl = logging.FileHandler(filename=LOG_FILENAME, encoding='utf-8')
+    fl.setLevel(logging.DEBUG)
+    fl.setFormatter(formatter)
+    log = logging.getLogger('MTS')
+    log.setLevel(logging.DEBUG)
+    log.addHandler(ch)
+    log.addHandler(fl)
+
+    log.info(u"start")
+
+
+    user_noc = 'noreply@globalhome.su'
+    pass_noc = 'yjhtgkb(*$'
+    smtp_noc = 'smtp.gmail.com'
+    MAILS = (# 'fora11@yandex.ru',
+             'noc@globalhome.su',
+             )
+
+    MIN_MIN = 100
+    MIN_BALANCE = 500
+    ACCESS_NUMBER = '9852689403'
+    ACCESS_PASSWORD = '880345'
+    CITY_NUMBER = '74996383006'
+
+    NUMBERS = [{'num':'9852689403', 'password':'880345'},
+               # {'num':'9852689404', 'password':'880344'},
+               ]
+
+    nums = [x['num'] for x in NUMBERS]
+    passwords = {}
+    for n in NUMBERS:
+        passwords[n['num']] = n['password']
+
+    try:
+        f = open('mts_check.number')
+        num = f.readline()
+        f.close()
+    except IOError, e:
+        num = nums[0]
+        f = open('mts_check.number', 'a')
+        f.write(num)
+        f.close()
+
+    # print datetime.date.today(), first_date_m()
+
+    if datetime.date.today() == first_date_m():
+        if time.localtime()[3] == 0 and time.localtime()[4] < 10:
+            num = nums[0]
+            r = set_redirect_mts(ACCESS_NUMBER, ACCESS_PASSWORD, CITY_NUMBER, log)
+
+
+    log.info("num=%s" % num)
+    minutes, balance = get_minutes_mts(num, passwords[num], log)
+    log.info("minutes=%s balance=%s" % (minutes, balance))
+
+    if 0 <= balance <= MIN_BALANCE:
+        log.info(u'Низкий баланс на номере:%s min:%s balance:%s' % (num, minutes, balance,))
+        send_mails('Низкий баланс на номере:%s min:%s balance:%s' % (num, minutes, balance,), MAILS, user_noc, pass_noc, smtp_noc, log)
+
+    if minutes > MIN_MIN:
+        exit()
+
+    try:
+        nums_temp = nums[nums.index(num) + 1:]
+    except:
+        nums_temp = []
+
+    for num in nums_temp:
+        log.info("num=%s" % num)
+        minutes, balance = get_minutes_mts(num, passwords[num], log)
+        log.info("minutes=%s balance=%s" % (minutes, balance))
+        if balance <= MIN_BALANCE:
+            log.info(u'Низкий баланс на номере:%s min:%s balance:%s' % (num, minutes, balance,))
+            send_mails('Низкий баланс на номере:%s min:%s balance:%s' % (num, minutes, balance,), MAILS, user_noc, pass_noc, smtp_noc, log)
+        if minutes <= MIN_MIN:
+            continue
+        r = set_redirect_mts(ACCESS_NUMBER, ACCESS_PASSWORD, num, log)
+
+        # r = -1
+
+        if r > 0:
+            log.info("Set redirect to num: %s" % num)
+        else:
+            log.info("Don't set redirect to num: %s" % num)
+            send_mails("Don't set redirect to num: %s" % num, MAILS, user_noc, pass_noc, smtp_noc, log)
+        exit()
+
+    log.info(u'На всех номерах закончились минуты')
+    send_mails("На всех номерах закончились минуты", MAILS, user_noc, pass_noc, smtp_noc, log)

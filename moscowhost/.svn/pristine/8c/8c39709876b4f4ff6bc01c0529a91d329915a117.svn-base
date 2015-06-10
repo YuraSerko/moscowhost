@@ -1,0 +1,892 @@
+#!/usr/bin/env python
+# -*-coding=utf-8-*-
+
+
+import sys
+import datetime
+from math import ceil
+import urllib, urllib2, cookielib, json
+import os
+import time
+sys.path.append('../../')
+sys.path.append('../')
+# from internet_providers.mts import get_balance
+from mts import get_balance
+import logging
+
+
+
+
+
+
+
+
+
+GROUP_VPN = 11
+GROUP_SIM = 4
+GROUP_QIWI = 4
+MIN_BALANCE = 2.10
+MAX_BALANCE = 100
+MIN_BALANCE_QIWI = 25
+QIWI_LOGINS_START = ['+79154545309',
+                     '+79154545391',
+                     '+79154545387',
+                     '+79154545388',
+                     '+79154545376',
+                     '+79154545371',
+                     '+79100050801',
+                     '+79154545366',
+                     '+79154545362',
+                     '+79154545360',
+                     '+79154545326',
+                     '+79154545321',
+                     '+79154545320',
+                     '+79154545317',
+                     '+79154545312',
+                     '+79169023779',
+                     '+79854188237',
+                     '+79856843526',
+                     '+79152907907',
+                     '+79152929443',
+                     '+79152929021',
+                     '+79152929095',
+                     '+79152921229',
+                     '+79152929281',
+                     '+79152929352',
+                     '+79152929110',
+                     '+79153232125',
+                    ]
+
+
+QIWI_LOGINS = [ '+79154545176',
+                '+79154545183',
+                '+79154545308',
+                '+79154545298',
+                '+79154545208',
+                '+79154545206',
+                '+79154545203',
+                '+79154545201',
+                '+79154545199',
+                '+79154545196',
+                '+79154545193',
+                '+79154545189',
+                '+79154545187',
+                '+79154545186',
+                '+79154545182',
+                '+79194107981',
+                '+79153366860',
+                '+79152626204',
+                '+79152626171',
+                '+79152626221',
+                '+79152626250',
+                '+79153366920',
+                '+79153366917',
+                '+79153366578',
+                '+79153366916',
+                '+79153366904',
+                '+79152626786',
+                '+79152626602',
+                '+79152626569',
+                '+79152626615',
+                '+79152626576',
+                '+79154121214',
+                '+79154120070',
+                '+79152626609',
+                '+79153366946',
+                '+79153366921',
+                '+79152626747',
+                '+79152626742',
+                '+79175677855',
+                '+79152626720',
+                '+79152626680',
+                '+79175677803',
+                '+79175679073',
+                '+79175677811',
+                '+79175679079',
+                '+79175677463',
+                '+79152629229',
+                '+79152626294',
+                '+79152626292',
+                '+79152626768',
+                '+79152626275',
+                '+79152626366',
+                '+79153366945',
+                '+79152626360',
+                '+79153366865',
+                '+79152626372',
+                '+79858999126',
+                '+79857101009',
+                '+79857101003',
+                '+79857101006',
+                '+79858999430',
+                '+79858999431',
+                '+79857101004',
+                '+79856824516',
+                '+79853018054',
+                '+79175210341',
+                '+79856243536',
+                '+79857107502',
+                '+79856243297',
+                '+79175117886',
+                '+79169024314',
+                '+79168717877',
+                '+79169023659',
+                '+79175210488',
+                '+79169024699',
+                '+79153056412',
+                '+79168717613',
+                '+79853578887',
+                '+79153232039',
+                '+79152923229',
+                '+79152922029',
+                '+79152925529',
+                '+79152928829',
+                '+79152929452',
+                '+79153232042',
+                '+79152909529',
+                '+79152925429',
+                '+79153228122',
+                '+79152899959',
+                '+79152902629',
+                '+79152911192',
+                '+79152929490',
+                '+79153228732',
+                '+79152928729',
+                '+79153232072',
+                '+79152926926',
+                '+79153087087',
+                '+79152929286',
+                '+79152929427',
+                '+79152927329',
+                '+79153088630',
+                '+79153229032',
+                '+79153079730',
+                '+79152929440',
+                '+79152929336',
+                '+79152929439',
+                '+79152929260',
+                '+79152908229',
+                ]
+
+
+QIWI_PASSWORD = 'asdqwe123'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_HOST_USER = 'noc@dialpeer.org'
+EMAIL_HOST_PASSWORD = 'ndjhtw'
+MAILS = [  # 'evgeniy_x1991@globalhome.su',
+         'trin@dialpeer.org',
+         'fora11@yandex.ru',
+        ]
+
+
+class ExceptionPageDontAvalaible(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return u"Страница %s не доступна" % self.value
+
+class ExceptionChangeLocationOfTags(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return u"Изменилось расположение тегов. Заданные теги не найдены %s" % self.value
+
+
+class ExceptionIncorrectData(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return u"Неправильно введены логин или пароль"
+
+
+def send_mail(mail_from, password, mail_to, subject, text, servername="smtp.gmail.com", files=[], performDebugging=False, name_from='', name_to=''):
+    import smtplib
+    import os
+    import email.utils
+    from email.MIMEMultipart import MIMEMultipart
+    from email.MIMEBase import MIMEBase
+    from email.MIMEText import MIMEText
+    from email.Utils import COMMASPACE, formatdate
+    from email import Encoders
+    # assert type(send_to)==list
+    assert type(files) == list
+
+
+    msg = MIMEMultipart()
+    msg.set_charset('utf-8')
+    msg['From'] = email.utils.formataddr((name_from, mail_from))
+    msg['To'] = email.utils.formataddr((name_to, mail_to))
+    msg['Subject'] = subject
+    msg['Date'] = formatdate(localtime=True)
+    msg.attach(MIMEText(text, 'html' if 'html' in text.lower() else ''))
+    msg.set_charset('utf-8')
+    for f in files:
+        part = MIMEBase('application', "octet-stream")
+        part.set_payload(open(f, "rb").read())
+        Encoders.encode_base64(part)
+        part.add_header('Content-Disposition', 'attachment; filename="%s"' % os.path.basename(f))
+        msg.attach(part)
+    server = smtplib.SMTP(servername, 587)
+    try:
+        server.set_debuglevel(performDebugging)
+        # start the SMTP twitter
+        server.ehlo()
+        # start encryption if feature is supported by server
+        if server.has_extn('STARTTLS'):
+            server.starttls()
+            # restart SMTP session over TLS connection
+            server.ehlo()
+            server.login(mail_from, password)
+            server.sendmail(mail_from, mail_to, msg.as_string())
+        else:
+            raise Exception('STARTTLS extension not supported by server')
+    finally:
+        server.quit()
+
+
+def pay_mts_from_qiwi(numbers, login, password, vpn_id, log):
+    """Функция подключается к qiwi.кошелек и пополняет баланс на счету mts"""
+
+    site_url = 'https://qiwi.ru/'
+    login_url = site_url + 'auth/login.action'
+    action_url = site_url + 'payment/form.action?provider=1'
+    payment_url = site_url + 'user/payment/form/state.action'
+    payment_url2 = site_url + '/provider/content/categorypath.action'
+    good_upd_bal = []
+    login_to = False
+    ok = 5
+    while ok:
+        ok -= 1
+        try:
+            start_vpn(vpn_id, log)
+            cj = cookielib.CookieJar()
+            opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+            opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ru; rv:1.9.2.22) Gecko/20110902 Firefox/3.6.22')]
+            urllib2.install_opener(opener)
+            opener.addheaders = [('X-Requested-With', 'XMLHttpRequest'),
+                                 ('Pragma', 'no-cache'),
+                                 ('Referer', 'https://qiwi.ru/payment/form.action?provider=1'),
+                                 ('Accept', 'application/json, text/javascript, */*; q=0.01')]
+            login_data = urllib.urlencode({'source' : 'menu', 'login' : login, 'password' : password})
+            resp = opener.open(login_url, login_data, timeout=60)
+            res = resp.read()
+            r = json.loads(res)
+            token = r["data"]["token"]
+            login_data = urllib.urlencode({'source' : 'menu', 'login' : login, 'password' : password, 'loginToken':token})
+            resp = opener.open(login_url, login_data, timeout=60)
+            res = resp.read()
+            r = json.loads(res)
+            result = r["code"]["value"]
+
+            if result == '0':
+                login_to = True
+            resp = opener.open(action_url, timeout=60)
+            res = resp.read()
+            ok = False
+        except urllib2.URLError, x:
+            if x.reason == '<urlopen error timed out>':
+                log.info(x)
+            if (vpn_id + 1) > 11:
+                vpn_id = 1
+            else:
+                vpn_id += 1
+        except Exception, x:
+            log.info(u"Ошибка открытия страницы %s" % x)
+            exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+            # exit()
+            if (vpn_id + 1) > 11:
+                vpn_id = 1
+            else:
+                vpn_id += 1
+
+    if not login_to:
+        log.info(u"Ошибка доступа в кабинет qiwi")
+        return []
+    """Проверка баланса кошелька"""
+    b = res[res.find('<div class="account_current_amount">') + len('<div class="account_current_amount">'):]
+    try:
+        balance = float(b[:b.find('<')].strip().replace(',', '.').replace(' ', ''))
+    except Exception, e:
+        log.info(u"Ошибка получения баланса %s" % e)
+        balance = None
+    log.info(u'pay_mts_from_qiwi: Баланс кошелька %s составляет: %s' % (login, balance))
+
+    i = 0
+    for num, pay_sum in numbers:
+        i += 1
+        ok = 5
+        while ok:
+            ok -= 1
+            try:
+                resp = opener.open(action_url, timeout=60)
+                res = resp.read()
+                login_data = urllib.urlencode({"extra['account']": "(%s)%s-%s-%s" % (num[:3], num[3:6], num[6:8], num[8:]),  # (916)902-43-14",
+                                               "source": "qiwi_RUB",
+                                               "amountInteger": pay_sum,
+                                               "amountFraction": "",
+                                               "currency": "RUB",
+                                               "extra['comment']": "",
+                                               "state": "CONFIRM",
+                                               "protected": "true",
+                                               }
+                                              )
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                r = json.loads(res)
+                token = r["data"]["token"]
+                login_data = urllib.urlencode({"extra['account']": "(%s)%s-%s-%s" % (num[:3], num[3:6], num[6:8], num[8:]),
+                                               "source": "qiwi_RUB",
+                                               "amountInteger": pay_sum,
+                                               "amountFraction": "",
+                                               "currency": "RUB",
+                                               "extra['comment']": "",
+                                               "state": "CONFIRM",
+                                               "protected": "true",
+                                               "token": token,
+                                               }
+                                              )
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                login_data = urllib.urlencode({"state": "PAY"})
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                r = json.loads(res)
+                token = r["data"]["token"]
+                login_data = urllib.urlencode({"token": token, "state": "PAY"})
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                if 'Ваш платеж принят в обработку.' in res:
+                    log.info(u'Оплачено: %s %s' % (num, pay_sum))
+                    good_upd_bal.append(num)
+                elif 'Недостаточно средств' in res:
+                    log.info(u'Недостаточно средств: %s %s' % (num, pay_sum))
+                elif 'Сервер занят, повторите запрос через минуту' in res:
+                    log.info(u'Сервер занят, повторите запрос через минуту: %s %s' % (num, pay_sum))
+                    time.sleep(60)
+                    continue
+                else:
+                    log.info(u'Не оплачено: %s %s' % (num, pay_sum))
+                    print res
+                ok = False
+            except Exception, x:
+                log.info(u"Ошибка открытия страницы %s" % x)
+                exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+                # exit()
+    return good_upd_bal
+
+
+def qiwi_get_balance(login, password, log, k, vpn_id):
+    """Функция получает баланс на кошельке"""
+
+    site_url = 'https://qiwi.ru/'
+    login_url = site_url + 'auth/login.action'
+    action_url = site_url + 'payment/form.action?provider=1'
+
+    ok = 5
+    while ok:
+        ok -= 1
+        try:
+            start_vpn(vpn_id, log)
+            cj = cookielib.CookieJar()
+            opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+            opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ru; rv:1.9.2.22) Gecko/20110902 Firefox/3.6.22')]
+            urllib2.install_opener(opener)
+            opener.addheaders = [('X-Requested-With', 'XMLHttpRequest'),
+                                 ('Pragma', 'no-cache'),
+                                 ('Referer', 'https://qiwi.ru/payment/form.action?provider=1'),
+                                 ('Accept', 'application/json, text/javascript, */*; q=0.01')]
+            login_data = urllib.urlencode({'source' : 'menu', 'login' : login, 'password' : password})
+            resp = opener.open(login_url, login_data, timeout=60)
+            res = resp.read()
+            r = json.loads(res)
+            token = r["data"]["token"]
+            login_data = urllib.urlencode({'source' : 'menu', 'login' : login, 'password' : password, 'loginToken':token})
+            resp = opener.open(login_url, login_data, timeout=60)
+            res = resp.read()
+            r = json.loads(res)
+            result = r["code"]["value"]
+            login_to = False
+            if result == '0':
+                login_to = True
+            resp = opener.open(action_url, timeout=60)
+            res = resp.read()
+            break
+        except Exception, x:
+            log.info(u"Ошибка открытия страницы %s" % x)
+            exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+            if (vpn_id + 1) > 11:
+                vpn_id = 1
+            else:
+                vpn_id += 1
+            # exit()
+    if not ok:
+        log.info(u"Исчерпано количество попыток вход в кабинет qiwi: %s" % login)
+        return None, vpn_id
+    if not login_to:
+        log.info(u"Ошибка доступа в кабинет qiwi: %s" % login)
+        return None, vpn_id
+    """Проверка баланса кошелька"""
+    b = res[res.find('<div class="account_current_amount">') + len('<div class="account_current_amount">'):]
+    try:
+        balance = float(b[:b.find('<')].strip().replace(',', '.').replace(' ', ''))
+    except Exception, e:
+        log.info(u"Ошибка получения баланса %s" % e)
+        balance = None
+    log.info(u'%s Баланс кошелька %s составляет: %s' % (k, login, balance))
+    return balance, vpn_id
+
+
+def pay_qiwi_from_qiwi_old_mass(numbers, qiwi_logins, password, log):
+    """Функция подключается к qiwi.кошелек и пополняет баланс на счету mts"""
+
+    site_url = 'https://qiwi.ru/'
+    login_url = site_url + 'auth/login.action'
+    action_url = site_url + 'transfer/form.action'
+    payment_url = site_url + 'user/payment/form/state.action'
+    good_upd_bal = []
+
+    for qiwi_login in qiwi_logins:
+        ok = True
+        while ok:
+            try:
+                cj = cookielib.CookieJar()
+                opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+                opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ru; rv:1.9.2.22) Gecko/20110902 Firefox/3.6.22')]
+                urllib2.install_opener(opener)
+                opener.addheaders = [('X-Requested-With', 'XMLHttpRequest'),
+                                     ('Pragma', 'no-cache'),
+                                     ('Referer', 'https://qiwi.ru/payment/form.action?provider=1'),
+                                     ('Accept', 'application/json, text/javascript, */*; q=0.01')]
+                login_data = urllib.urlencode({'source' : 'menu', 'login' : qiwi_login, 'password' : password})
+                resp = opener.open(login_url, login_data, timeout=60)
+                res = resp.read()
+                r = json.loads(res)
+                token = r["data"]["token"]
+                login_data = urllib.urlencode({'source' : 'menu', 'login' : qiwi_login, 'password' : password, 'loginToken':token})
+                resp = opener.open(login_url, login_data, timeout=60)
+                res = resp.read()
+                r = json.loads(res)
+                result = r["code"]["value"]
+                login = False
+                if result == '0':
+                    login = True
+                resp = opener.open(action_url, timeout=60)
+                res = resp.read()
+                ok = False
+            except Exception, x:
+                log.info(u"Ошибка открытия страницы %s" % x)
+                exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+
+
+        if not login:
+            log.info(u"Ошибка доступа в кабинет qiwi")
+            return []
+        """Проверка баланса кошелька"""
+        b = res[res.find('<div class="account_current" data-container-name="account-this">') + len('<div class="account_current" data-container-name="account-this">'):]
+        try:
+            balance = float(b[:b.find('<')].strip().replace(',', '.').replace(' ', ''))
+        except:
+            balance = 0
+        log.info(u'Баланс кошелька %s составляет: %s' % (qiwi_login, balance))
+        balance_limit = False
+        i = 0
+        for num, pay_sum in numbers:
+            i += 1
+            if len(good_upd_bal) >= len(numbers):
+                return good_upd_bal
+            if num in good_upd_bal:
+                continue
+            if balance < pay_sum:
+                balance_limit = True
+                continue
+            try:
+                ok = True
+                while ok:
+                    resp = opener.open(action_url, timeout=60)
+                    res = resp.read()
+                    login_data = urllib.urlencode({"extra['account']": num,  # (916)902-43-14",
+                                                   "source": "qiwi_RUB",
+                                                   "amountInteger": pay_sum,
+                                                   "amountFraction": "",
+                                                   "currency": "RUB",
+                                                   "extra['comment']": "",
+                                                   "state": "CONFIRM",
+                                                   "protected": "true",
+                                                   }
+                                                  )
+                    resp = opener.open(payment_url, login_data, timeout=60)
+                    res = resp.read()
+                    r = json.loads(res)
+                    token = r["data"]["token"]
+                    login_data = urllib.urlencode({"extra['account']": "(%s)%s-%s-%s" % (num[:3], num[3:6], num[6:8], num[8:]),
+                                                   "source": "qiwi_RUB",
+                                                   "amountInteger": pay_sum,
+                                                   "amountFraction": "",
+                                                   "currency": "RUB",
+                                                   "extra['comment']": "",
+                                                   "state": "CONFIRM",
+                                                   "protected": "true",
+                                                   "token": token,
+                                                   }
+                                                  )
+                    resp = opener.open(payment_url, login_data, timeout=60)
+                    res = resp.read()
+                    login_data = urllib.urlencode({"state": "PAY"})
+                    resp = opener.open(payment_url, login_data, timeout=60)
+                    res = resp.read()
+                    r = json.loads(res)
+                    token = r["data"]["token"]
+                    login_data = urllib.urlencode({"token": token, "state": "PAY"})
+                    resp = opener.open(payment_url, login_data, timeout=60)
+                    res = resp.read()
+                    if 'Ваш платеж принят в обработку.' in res:
+                        log.info(u'Оплачено: %s %s' % (num, pay_sum))
+                        good_upd_bal.append(num)
+                        balance = balance - pay_sum
+                    else:
+                        log.info(u'Не оплачено: %s %s' % (num, pay_sum))
+                    ok = False
+                    # exit()
+            except Exception, x:
+                log.info(u"Ошибка открытия страницы %s" % x)
+                exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+                fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+
+#        if balance_limit:
+#            continue
+    return good_upd_bal
+
+def start_vpn(vpn_id, log):
+    log.info("Open vpn %s" % (vpn_id + 1))
+    os.system("poff")
+    os.system("pon %s" % (vpn_id + 1))
+    time.sleep(5)
+    return
+
+def pay_qiwi_from_qiwi(numbers, qiwi_login, password, vpn_id, log):
+    """Функция подключается к qiwi.кошелек и пополняет баланс на счету mts"""
+
+    site_url = 'https://qiwi.ru/'
+    login_url = site_url + 'auth/login.action'
+    action_url = site_url + 'transfer/form.action'
+    payment_url = site_url + 'user/payment/form/state.action'
+    good_upd_bal = []
+
+
+    ok = True
+    while ok:
+        try:
+            start_vpn(vpn_id, log)
+            cj = cookielib.CookieJar()
+            opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cj))
+            opener.addheaders = [('User-agent', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; ru; rv:1.9.2.22) Gecko/20110902 Firefox/3.6.22')]
+            urllib2.install_opener(opener)
+            opener.addheaders = [('X-Requested-With', 'XMLHttpRequest'),
+                                 ('Pragma', 'no-cache'),
+                                 ('Referer', 'https://qiwi.ru/payment/form.action?provider=1'),
+                                 ('Accept', 'application/json, text/javascript, */*; q=0.01')]
+            login_data = urllib.urlencode({'source' : 'menu', 'login' : qiwi_login, 'password' : password})
+            resp = opener.open(login_url, login_data, timeout=60)
+            res = resp.read()
+            r = json.loads(res)
+            token = r["data"]["token"]
+            login_data = urllib.urlencode({'source' : 'menu', 'login' : qiwi_login, 'password' : password, 'loginToken':token})
+            resp = opener.open(login_url, login_data, timeout=60)
+            res = resp.read()
+            r = json.loads(res)
+            result = r["code"]["value"]
+            login = False
+            if result == '0':
+                login = True
+            resp = opener.open(action_url, timeout=60)
+            res = resp.read()
+            ok = False
+        except Exception, x:
+            log.info(u"Ошибка открытия страницы %s" % x)
+            exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+            if (vpn_id + 1) > 11:
+                vpn_id = 1
+            else:
+                vpn_id += 1
+
+
+    if not login:
+        log.info(u"Ошибка доступа в кабинет qiwi")
+        return vpn_id
+    """Проверка баланса кошелька"""
+    b = res[res.find('<div class="account_current_amount">') + len('<div class="account_current_amount">'):]
+    try:
+        balance = float(b[:b.find('<')].strip().replace(',', '.').replace(' ', ''))
+    except Exception, e:
+        log.info(u"Ошибка получения баланса %s" % e)
+        balance = None
+    log.info(u'pay_qiwi_from_qiwi: Баланс кошелька %s составляет: %s' % (qiwi_login, balance))
+
+    i = 0
+    for num, pay_sum in numbers:
+        i += 1
+        if len(good_upd_bal) >= len(numbers):
+            return vpn_id
+        if num in good_upd_bal:
+            continue
+        if balance < pay_sum:
+            continue
+        try:
+            ok = True
+            while ok:
+                resp = opener.open(action_url, timeout=60)
+                res = resp.read()
+                login_data = urllib.urlencode({"extra['account']": num,  # (916)902-43-14",
+                                               "source": "qiwi_RUB",
+                                               "amountInteger": pay_sum,
+                                               "amountFraction": "",
+                                               "currency": "RUB",
+                                               "extra['comment']": "",
+                                               "state": "CONFIRM",
+                                               "protected": "true",
+                                               }
+                                              )
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                r = json.loads(res)
+                token = r["data"]["token"]
+                login_data = urllib.urlencode({"extra['account']": "(%s)%s-%s-%s" % (num[:3], num[3:6], num[6:8], num[8:]),
+                                               "source": "qiwi_RUB",
+                                               "amountInteger": pay_sum,
+                                               "amountFraction": "",
+                                               "currency": "RUB",
+                                               "extra['comment']": "",
+                                               "state": "CONFIRM",
+                                               "protected": "true",
+                                               "token": token,
+                                               }
+                                              )
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                login_data = urllib.urlencode({"state": "PAY"})
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                r = json.loads(res)
+                token = r["data"]["token"]
+                login_data = urllib.urlencode({"token": token, "state": "PAY"})
+                resp = opener.open(payment_url, login_data, timeout=60)
+                res = resp.read()
+                if 'Ваш платеж принят в обработку.' in res:
+                    log.info(u'Оплачено: %s %s' % (num, pay_sum))
+                    good_upd_bal.append(num)
+                    balance = balance - pay_sum
+                elif 'Недостаточно средств' in res:
+                    log.info(u'Недостаточно средств: %s %s' % (num, pay_sum))
+                elif 'Сервер занят, повторите запрос через минуту' in res:
+                    log.info(u'Сервер занят, повторите запрос через минуту: %s %s' % (num, pay_sum))
+                    time.sleep(60)
+                    continue
+                else:
+                    log.info(u'Не оплачено: %s %s' % (num, pay_sum))
+                    print res
+                ok = False
+                # exit()
+        except Exception, x:
+            log.info(u"Ошибка открытия страницы %s" % x)
+            exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            log.info(u"Exception: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+
+    return vpn_id
+
+
+
+def check_numbers(numbers, res, k, log):
+#    log.info(numbers)
+#    log.info(k)
+#    return ''
+    global BIG_NUMBERS
+    sim_upd_bal = []
+    res = []
+    for i, d in enumerate (numbers):
+        if START_ID and (k + i + 1) < START_ID:
+            continue
+        try:
+            login, imsi, password = d.split()
+        except:
+            continue
+        bal = None
+        attempt = 0
+        while attempt <= 3:
+            attempt += 1
+            try:
+                bal = get_balance(login, password)
+                break
+            except ExceptionPageDontAvalaible as e:
+                log.info(e)
+            except ExceptionChangeLocationOfTags as e:
+                log.info(e)
+            except ExceptionIncorrectData as e:
+                log.info(e)
+            except Exception, e:
+                log.info(e)
+        log.info(u"%s %s %s %s %s" % (k + i + 1, login, imsi, password, bal))
+        res.append({'login': login, 'imsi': imsi, 'pass': password, 'balance': bal})
+        if bal != None and bal < MIN_BALANCE and int(ceil(MIN_BALANCE - bal)) > 10 and int(ceil(MIN_BALANCE - bal)) < MAX_BALANCE:
+            BIG_NUMBERS.append([login, int(ceil(MIN_BALANCE - bal))])
+            continue
+        if bal != None and bal < MIN_BALANCE and int(ceil(MIN_BALANCE - bal)) < MAX_BALANCE:
+            sim_upd_bal.append([login, int(ceil(MIN_BALANCE - bal))])
+
+    if sim_upd_bal:
+        sum_pay = 0
+        for s in sim_upd_bal:
+            sum_pay += s[1]
+        if sum_pay > 0:
+            sum_pay += 1
+        qiwi_id = k / GROUP_SIM
+        # log.info('qiwi_id=%s asdasd=%s' % (qiwi_id, (k / GROUP_SIM)))
+        vpn_id = (qiwi_id / GROUP_VPN)
+        qiwi_balance, vpn_id = qiwi_get_balance(QIWI_LOGINS[qiwi_id], QIWI_PASSWORD, log, qiwi_id, vpn_id)
+        if qiwi_balance != None:
+            log.info('sum_pay=%s qiwi_balance=%s' % (sum_pay, qiwi_balance))
+            if qiwi_balance < sum_pay:
+                log.info('qiwi_id=%s QIWI_LOGINS[qiwi_id]=%s sum_pay_to_qiwi=%s qiwi_id / GROUP_QIWI=%s QIWI_LOGINS_START[qiwi_id / GROUP_QIWI]=%s' %
+                         (qiwi_id, QIWI_LOGINS[qiwi_id], int(ceil(sum_pay - qiwi_balance)), (qiwi_id / GROUP_QIWI), QIWI_LOGINS_START[qiwi_id / GROUP_QIWI]))
+
+                vpn_id = pay_qiwi_from_qiwi([[QIWI_LOGINS[qiwi_id], int(ceil(sum_pay - qiwi_balance))], ], QIWI_LOGINS_START[qiwi_id / GROUP_QIWI], QIWI_PASSWORD, (qiwi_id / GROUP_VPN), log)
+            # log.info("qiwi_id=%s qiwi_id/GROUP_VPN=%s" % (qiwi_id, (qiwi_id / GROUP_VPN)))
+        pay_mts_from_qiwi(sim_upd_bal, QIWI_LOGINS[qiwi_id], QIWI_PASSWORD, vpn_id, log)
+    return res
+
+
+def check_qiwi_start(numbers, password, log):
+    res = []
+    first = True
+
+    for i, d in enumerate(numbers):
+        if first:
+            first = False
+            vpn_id = (i + 1) / GROUP_VPN
+        login = d
+        bal = None
+        attempt = 0
+        while attempt <= 3:
+            attempt += 1
+            try:
+                bal, vpn_id = qiwi_get_balance(login, password, log, i + 1, vpn_id)
+                break
+            except Exception, e:
+                log.info(e)
+        res.append({'login': login, 'balance': bal})
+    return res
+
+
+def check_qiwi(numbers, password, k, log):
+    qiwi_upd_bal = []
+    res = []
+#    if k < 97:
+#        return res
+    for i, d in enumerate(numbers):
+        login = d
+        bal = None
+        attempt = 0
+        while attempt <= 3:
+            attempt += 1
+            try:
+                bal = qiwi_get_balance(login, password, log, k + i + 1)
+                break
+            except Exception, e:
+                log.info(e)
+        # log.info(u"%s %s %s" % (k + i + 1, login, bal))
+        res.append({'login': login, 'balance': bal})
+        if bal != None and bal < MIN_BALANCE_QIWI:
+            qiwi_upd_bal.append([login, int(ceil(MIN_BALANCE_QIWI - bal))])
+        # print qiwi_upd_bal
+        # print len(qiwi_upd_bal)
+        # exit()
+    if qiwi_upd_bal:
+        pay_qiwi_from_qiwi(qiwi_upd_bal, QIWI_LOGINS_START[k / GROUP_QIWI], QIWI_PASSWORD, (k / GROUP_VPN), log)
+    return res
+
+
+if __name__ == '__main__':
+
+    """Генерируем имя для лог-файла"""
+    today = datetime.datetime.now()
+    LOG_FILENAME = 'logs/' + today.strftime("balance-%Y-%m-%d %H-%M") + '.log'
+    # create console handler
+    formatter_ch = logging.Formatter(u"%(asctime)s - %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter_ch)
+    # create file handler
+    formatter = logging.Formatter(u"%(asctime)s - %(levelname)s - %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+    fl = logging.FileHandler(filename=LOG_FILENAME, encoding='utf-8')
+    fl.setLevel(logging.DEBUG)
+    fl.setFormatter(formatter)
+    # create logger
+    log = logging.getLogger('mts')
+    log.setLevel(logging.DEBUG)
+    log.addHandler(ch)
+    log.addHandler(fl)
+
+    log.info(u'Start')
+
+    BIG_NUMBERS = []
+
+    try:
+        START_ID = int(sys.argv[1])
+    except:
+        START_ID = None
+
+    if not START_ID:
+        res = check_qiwi_start(QIWI_LOGINS_START, QIWI_PASSWORD, log)
+        if res:
+            result = ''
+            for r in res:
+                result += '%s\r\n' % r
+            now = datetime.datetime.now()
+            theme = 'Обнаружены низкие балансы %s' % now.strftime("%H:%M:%S")
+            text_mail = 'Обнаружены низкие балансы %s\r\n\r\n' % now.strftime("%H:%M:%S") + \
+                        'логин - пароль - баланс\r\n' + \
+                        u'\r\n'.join(['%s ' % i + '%(login)s - %(balance)s' % d for i, d in enumerate(res)]).encode('utf-8')
+            for mail_to in MAILS:
+                i = 2
+                while i:
+                    i -= 1
+                    now = datetime.datetime.now()
+                    send_mail(EMAIL_HOST_USER,
+                              EMAIL_HOST_PASSWORD,
+                              mail_to,
+                              theme,
+                              text_mail,
+                              EMAIL_HOST,
+                              []
+                              )
+                    break
+    exit()
+#    QIWI_LOGINS_CHECK = QIWI_LOGINS
+#    log.info(u'Количество кошельков для проверки баланса: %s' % len(QIWI_LOGINS_CHECK))
+#    for i in range((len(QIWI_LOGINS_CHECK) / GROUP_QIWI)):
+#        check_qiwi(QIWI_LOGINS_CHECK[i * GROUP_QIWI:(i + 1) * GROUP_QIWI], QIWI_PASSWORD, i * GROUP_QIWI, log)
+#        time.sleep(120)
+
+    f = open('mts_numbers.txt')
+    numbers = f.readlines()
+    res = []
+    for i in range((len(numbers) / GROUP_SIM) + 1):
+        res += check_numbers(numbers[i * GROUP_SIM:(i + 1) * GROUP_SIM], res, i * GROUP_SIM, log)
+        # time.sleep(10)
+
+#    if BIG_NUMBERS:
+#        pay_mts_from_qiwi(BIG_NUMBERS, '+79154545309', QIWI_PASSWORD, 1, log)
+
+    log.info(u'Stop')
+

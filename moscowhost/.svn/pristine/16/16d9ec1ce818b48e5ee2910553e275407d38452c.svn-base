@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ymaps xmlns="http://maps.yandex.ru/ymaps/1.x" xmlns:gml="http://www.opengis.net/gml">
+     <Representation xmlns="http://maps.yandex.ru/representation/1.x">
+   <Style gml:id="1">
+        <iconStyle>
+            <href>scripts/php_script/call2.png</href>
+            <size x="5" y="5"/>
+            <offset x="0" y="0"/>
+        </iconStyle>
+    </Style>
+   
+     </Representation>
+
+    <GeoObjectCollection>
+        <gml:featureMembers>
+        </gml:featureMembers>
+    </GeoObjectCollection>
+</ymaps>

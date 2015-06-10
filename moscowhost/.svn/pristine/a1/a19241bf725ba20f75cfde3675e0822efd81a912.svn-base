@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys, os
+import datetime
+import copy
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+# from billing.models import BillserviceAccount
+# from data_centr.models import Zakazy, Data_centr_payment, Change_tariff #Return_payment
+# from data_centr.views import send_mail_check, add_document_in_dict_for_send
+# from account.models import Profile
+# from findocs.models import Rules_of_drawing_up_documents, Check, Act, Invoice, FinDocSigned, Package_on_connection_of_service
+from django.contrib.auth.models import User
+from findocs.models import FinDocSigned
+# from django.db.models import Q
+# from django.db import connections
+# from dateutil.relativedelta import relativedelta
+# from payment.models import Billservice_transaction
+from lib.mail import send_email
+from django.conf import settings
+from datetime import datetime
+
+body_message = u'''
+Уважаемый пользователь! Сообщаем Вам что с 27.12.2014 изменятся тарифы на исходящие звонки по некоторым направлениям.
+Полную информацию по исходящим тарифам Вы можете получить по ссылке http://globalhome.su/content/article/mgmn/?date=27-12-2014'''
+spis_bill_account = []
+# return_payment_qs = Return_payment.objects.all()
+all_findoc_signed = FinDocSigned.objects.filter(findoc_id=1)
+all_count = len(all_findoc_signed)
+print all_count
+i = 0
+k = 0
+format = '%Y-%m-%d'
+repeat_email = []
+for x in all_findoc_signed:
+    user_mail = User.objects.get(id=x.signed_by_id)
+    if user_mail.last_login > datetime.strptime("2013-01-01", format):
+        if user_mail.email not in repeat_email and "41kc" not in user_mail.email and "globalhome" not in user_mail.email and "trin" not in user_mail.email and user_mail.is_active != False:
+            i += 1
+            print user_mail.email
+            send_email(u"Смена тарифов globalhome.su", "%s" % body_message, 'noreply@globalhome.su', [user_mail.email])
+            repeat_email.append(user_mail.email)
+            k += 1
+#            save_change_tariff = Change_tariff()
+#            save_change_tariff.send_mail = False
+#            save_change_tariff.auth_user_id = user_mail.id
+#            save_change_tariff.email = user_mail.email
+#            save_change_tariff.save()
+
+print "i tyt:"
+print i
+print "k tyt:"
+print k
+
+print 'end script at %s' % datetime.now()
+

@@ -1,0 +1,10 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags lib_tags %}
+
+{% block content %}
+
+<h1 class="title">{{ title }}</h1>
+
+{{ block.super }}
+
+{% endblock %}

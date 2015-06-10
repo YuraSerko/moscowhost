@@ -1,0 +1,49 @@
+#!/usr/bin/env python
+# coding: utf-8
+try:
+    import datetime
+    import sys, os
+    sys.path[0] = '../'
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+    from data_centr.models import Data_centr_payment, Zakazy, Limit_connection_service, Service_type
+    from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message, add_record_in_priority_of_services
+    from billing.models import BillserviceAccount
+    from externalnumbers.models import ExternalNumber
+    from findocs.models import Package_on_connection_of_service
+    from telnumbers.models import TelNumbersZakazy, TelNumbersGroup
+    from dateutil.relativedelta import relativedelta
+    from django.db.models import Q
+    from django.db import connections
+    from settings import DEFAULT_FROM_EMAIL, BILLING_DB, DATABASES
+    import log
+    from lib.mail import send_email
+    from page.models import Send_mail
+    from account.models import Profile
+    from django.core.mail import EmailMultiAlternatives
+
+    service_type_all = Service_type.objects.all()
+    profile_all = Profile.objects.all()
+    len_prof, i = len(profile_all), 0
+    for profile_obj in profile_all:
+        i += 1
+        print '%s / %s' % (i, len_prof)
+        bill_acc = profile_obj.billing_account
+        for service_type_obj in service_type_all:
+            limit_qs = Limit_connection_service.objects.filter(
+                                                 bill_acc=bill_acc,
+                                                 service_type=service_type_obj,
+                                                 )
+            if not limit_qs:
+                limit_obj = Limit_connection_service(
+                                                     bill_acc=bill_acc,
+                                                     service_type=service_type_obj,
+                                                     )
+                limit_obj.save()
+except Exception, e:
+    body_message = "Exception in script lin_con_service.py: '%s'" % e
+    exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    body_message += "\nException in script lin_con_service.py: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+    print body_message
+    log.add(body_message)
+#    send_email(u"Ошибка скрипта new_script_for_write_off_of_money.py", "%s" % body_message, DEFAULT_FROM_EMAIL, ["Zz1n@globalhome.su", "noc@globalhome.su"])

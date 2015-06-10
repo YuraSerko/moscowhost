@@ -1,0 +1,69 @@
+#!/usr/bin/env python
+# coding: utf-8
+print u"Импорты"
+import datetime
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from data_centr.models import Data_centr_payment, Zakazy
+from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message, add_record_in_priority_of_services
+from billing.models import BillserviceAccount
+from externalnumbers.models import ExternalNumber
+from findocs.models import Package_on_connection_of_service
+from telnumbers.models import TelNumbersZakazy, TelNumbersGroup
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.db import connections
+from django.core.mail import send_mail
+from settings import DEFAULT_FROM_EMAIL, BILLING_DB
+import log
+
+import psycopg2
+from settings import DATABASES
+print u"Скрипт начал работу"
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur.connection.set_isolation_level(1)
+cur.connection.commit()
+cur.execute("SELECT id, zakaz_id FROM billservice_prepaid_minutes WHERE zakaz_id is NOT NULL")
+zakaz_items = cur.fetchall()
+t = []
+r = {}
+for zakaz_item in zakaz_items:
+    cur.execute("SELECT status_zakaza_id FROM data_centr_zakazy WHERE id = %s " % zakaz_item[1])
+    res = cur.fetchone()
+    if not res:
+        t.append(int(zakaz_item[0]))
+    if res:
+        if res[0] in (4, 5,):
+            t.append(int(zakaz_item[0]))
+cur.execute("SELECT id, zakaz_id FROM billservice_prepaid_minutes WHERE zakaz_id is NULL")
+emp = cur.fetchall()
+if emp:
+    for empty in emp:
+        t.append(int(empty[0]))
+if t:
+    print "found records %s" % t
+    print "records %s" %len(t)
+if t:
+    for del_items in t:
+        cur.execute("DELETE FROM billservice_prepaid_minutes WHERE id=%s" % del_items) 
+    conn.commit() 
+    print "deleted %s records" % len(t)
+cur.execute("SELECT zakaz_id FROM billservice_prepaid_minutes GROUP BY zakaz_id HAVING count(zakaz_id)>1")
+repetitives = cur.fetchall()
+if repetitives:
+    for repetitive in repetitives:
+        repetitive_sp = []
+        cur.execute("SELECT id FROM billservice_prepaid_minutes   WHERE zakaz_id = %s" % repetitive )
+        result = cur.fetchall()
+        for re in result:
+            repetitive_sp.append(int(re[0]))
+        r[repetitive[0]] = repetitive_sp
+    print r
+    
+print u"Скрипт завершил работу"
+
+
+
+    

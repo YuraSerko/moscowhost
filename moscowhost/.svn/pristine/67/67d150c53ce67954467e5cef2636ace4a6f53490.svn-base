@@ -1,0 +1,25 @@
+# -*- coding=utf-8 -*-
+from django import forms
+from models import Billservice_transaction
+
+class webmoney_money(forms.Form):
+    money = forms.IntegerField(
+        label=u'Количество WMR',
+        )
+
+
+class Billservice_transaction_Admin_Form(forms.ModelForm):
+    class Meta(object):
+        model = Billservice_transaction
+
+    def __init__(self, *args, **kwargs):
+        super(Billservice_transaction_Admin_Form, self).__init__(*args, **kwargs)
+        from account.models import filter_for_admin
+        account = filter_for_admin()
+        try:
+            self.fields['account'].choices = account
+        except:
+            self.fields['account'] = account
+
+class PaymentRequestFormCard(forms.Form):
+    amount = forms.IntegerField(initial=50, min_value=10, label=u"Номинал карты в рублях", help_text=u"Укажите сумму в рублях")

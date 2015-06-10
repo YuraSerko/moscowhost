@@ -1,0 +1,58 @@
+# -*- coding: utf-8 -*-
+from time import localtime, strftime
+import datetime
+import sys
+from script_for_get_rate import ekGetInput
+from script_for_get_rate import ekParseXMLDoc
+from hotspot.models import HotSpotRate
+
+
+"""since = datetime.datetime(2014,01,01) # Первоначальная дата с которой начинается  заполнение
+since_range = since.day - 1
+day_now = datetime.datetime.now().day
+m1 = datetime.datetime(2014,01,01).month # Первоначальный месяц
+m2 = datetime.datetime.now().month
+for m in range(m1, m2): 
+    print m
+    for n in range(since_range, day_now):
+        print since + datetime.timedelta(n)
+exit()"""
+def main():    
+    lstDicXMLNodes=()
+   
+    for n in range(112):
+        d = datetime.datetime(2014,01,01) + datetime.timedelta(n)
+        
+        sDate= d.strftime("%d.%m.%Y")
+        sRevDate=d.strftime("%Y-%m-%d")
+        #sDate="03.04.2005"
+        #sRevDate="2005-04-03"
+
+        print "-----",sDate,"-----\n"
+        lstDicXMLNodes=ekParseXMLDoc(ekGetInput(sDate))
+        try:
+            HotSpotRate.objects.get(date=sRevDate) 
+        except HotSpotRate.DoesNotExist:        
+            for dicXMLNode in lstDicXMLNodes:
+                name = dicXMLNode['Name']
+                if dicXMLNode['Name'] == u'Фунт стерлингов Соединенного королевства':
+                    name =u'Фунт'
+                elif dicXMLNode['Name'] == u'Доллар США':
+                    name= u'Доллар'
+
+                rate = HotSpotRate(
+                               date=sRevDate,
+                               char_code=dicXMLNode['CharCode'],
+                               nominal=dicXMLNode['Nominal'],
+                               name=name,
+                               value= (dicXMLNode['Value'].encode('utf-8')).replace(',','.')
+                               )
+                rate.save()
+            print "-----",sDate,"-----\n"
+            print "\n\nDone ;)"
+        except:
+            pass
+
+#---------------------------------------------------------------------------
+if __name__ == '__main__' :   
+    sys.exit( main() )

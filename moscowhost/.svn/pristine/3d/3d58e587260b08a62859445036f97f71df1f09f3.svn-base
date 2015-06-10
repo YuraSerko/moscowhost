@@ -1,0 +1,709 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys
+import datetime
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+from globalhome.data_centr.models import Zakazy, Tariff, Price_connection, Status_zakaza, Service_type, OS, CPU, RAM, HDD
+from globalhome.data_centr.views import cost_dc
+from globalhome.account.models import Profile
+from globalhome.externalnumbers.models import ExternalNumber
+from globalhome.billing.models import BillserviceAccount
+from django.contrib.auth.models import User
+from django.db.models import Q
+import calendar
+import psycopg2
+from settings import DATABASES
+from dateutil.relativedelta import relativedelta
+
+
+# a = """2879341-2879342
+# 2879348
+# 2879352-2879356
+# 2879362-2879363
+# 6209820-6209829
+# 6428160-6428169
+#
+# 6600875-6600879
+# 6601671-6601675
+# 6601820-6601824
+# 6605460-6605463
+# 6605465-6605466
+# 6605610-6605613
+#
+# 5453116-5453119
+# 6200887
+# 6200898
+# 6204979
+# 6205818
+# 6205868
+#
+# 5444641
+# 5444648
+# 5444680-5444683
+# 5444685
+# 5444693
+# 5444696
+# 5444698
+#
+#
+# 5444392
+# 5444603-5444605
+# 5444608-5444609
+# 5444614-5444615
+# 5444620
+# 5444623-5444624
+# 5444638
+#
+# 2232796
+# 2232799
+# 5444307-5444309
+# 5444311
+# 5444350
+# 5444366
+# 5444390
+#
+# 2232739
+# 2232746
+# 2232749
+# 2232755
+# 2232760
+# 2232762
+# 2232772
+#
+#
+# 2232637-2232639
+# 2232654-2232655
+# 2232660
+# 2232686
+# 2232688
+# 2232691
+# 2232696
+# 2232726
+#
+#
+# 2210826-2210827
+# 2210887
+# 2210906
+# 2210908
+# 2210991-2210992
+# 2232621-2232622
+# 2232629
+# 2232635
+#
+#
+# 2210689
+# 2210729
+# 2210747
+# 2210754
+# 2210763
+# 2210771-2210772
+# 2210795-2210796
+# 2210819
+#
+#
+# 2210517
+# 2210523
+# 2210532
+# 2210538-2210539
+# 2210645
+# 2210652
+# 2210655-2210656
+# 2210659-2210660
+#
+#
+# 2210413
+# 2210448-2210449
+# 2210456
+# 2210465-2210466
+# 2210469
+# 2210474
+# 2210478
+# 2210482
+#
+# 3081000-3081999
+# """
+
+# a = """78124495911-78124495915
+# 78124493357-78124493361
+# 78123380000-78123380999
+# 74953081000-74953081999
+# 74996383000-74996383999"""
+# res = []
+# for l in a.splitlines():
+#    if not l:
+#        continue
+#    if '-' not in l:
+#        res.append(l)
+#        continue
+#    c = l.split('-')
+#    for i in range(int(c[0]), int(c[1]) + 1):
+#        res.append(str(i))
+# for r in res:
+#    print r
+# exit()
+
+# m = 0
+# for r in res:
+#    # print r
+#    cur.execute("SELECT id FROM external_numbers WHERE number=%s", (r,))
+#    result = cur.fetchone()
+#    if result:
+#        continue
+#
+#    cur.execute("Insert into external_numbers (number, region, is_reserved, tarif_group, dinging) VALUES (%s, 1, TRUE, 1, TRUE)", (r,))
+#    print "insert %s" % r
+#    m += 1
+# print len(res)
+# print m
+
+# import psycopg2
+# from settings import DATABASES
+#
+# conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+# cur = conn.cursor()
+# cur.connection.set_isolation_level(1)
+# cur.connection.commit()
+# cur.execute("SELECT number FROM external_numbers")
+# res = cur.fetchall()
+# for r in res:
+#
+#    if r[0] not in all_numbers:
+#        print r[0]
+# exit()
+
+
+exclude_numbers = """74952210689
+74952210819
+74952210827
+74952879352
+74952879353
+74952879355
+74952879356
+74952879363
+74955444350
+74955444392
+74955444609
+74955444615
+74955444620
+74955444638
+74955444641
+74955444648
+74955444681
+74955444682
+74956601674
+74956601675
+74956601823
+"""
+exclude_numbers = exclude_numbers.splitlines()
+
+sipout_numbers = """74956601821    VPBX    400
+74956601824    VPBX    400
+74956601822    VPBX    400
+74956601671    VPBX    400
+74956601672    VPBX    400
+74956601673    VPBX    400
+74956601674    stop    400
+74956601675    stop    400
+74956605465    VPBX    400
+74956605466    VPBX    400
+74956601823    stop    400
+74956601820    VPBX    400
+74956605461    VPBX    400
+74956605462    VPBX    400
+74956605463    VPBX    400
+74952879352    stop    400
+74952879353    stop    400
+74952879354    VPBX    400
+74952879355    stop    400
+74952879356    stop    400
+74952879362    VPBX    400
+74952879363    stop    400
+74952879342    VPBX    400
+74996383750    VPBX    60
+74996383751    VPBX    60
+74996383752    VPBX    60
+74996383753    VPBX    60
+74996383754    VPBX    60
+74996383755    free    60
+74996383756    VPBX    60
+74996383757    VPBX    60
+74996383758    VPBX    60
+74996383759    VPBX    60
+74996383760    VPBX    60
+74996383761    VPBX    60
+74996383762    VPBX    60
+74996383763    VPBX    60
+74996383764    VPBX    60
+74996383765    VPBX    60
+74996383766    VPBX    60
+74996383767    VPBX    60
+74996383768    VPBX    60
+74996383769    VPBX    60
+74996383770    VPBX    60
+74996383771    VPBX    60
+74996383772    VPBX    60
+74996383773    VPBX    60
+74996383774    VPBX    60
+74996383775    VPBX    60
+74996383776    VPBX    60
+74996383777    VPBX    60
+74996383778    VPBX    60
+74996383779    VPBX    60
+74996383780    VPBX    60
+74996383781    VPBX    60
+74996383782    VPBX    60
+74996383783    VPBX    60
+74996383784    VPBX    60
+74996383785    VPBX    60
+74996383786    VPBX    60
+74996383787    VPBX    60
+74996383788    VPBX    60
+74996383789    VPBX    60
+74996383790    VPBX    60
+74996383791    VPBX    60
+74996383792    VPBX    60
+74996383793    VPBX    60
+74996383794    VPBX    60
+74996383795    VPBX    60
+74996383796    VPBX    60
+74996383797    VPBX    60
+74996383798    VPBX    60
+74996383799    VPBX    60
+74996383800    VPBX    60
+74996383801    VPBX    60
+74996383802    VPBX    60
+74996383803    VPBX    60
+74996383804    VPBX    60
+74996383805    VPBX    60
+74996383806    VPBX    60
+74996383807    VPBX    60
+74996383808    VPBX    60
+74996383809    VPBX    60
+74996383810    VPBX    60
+74996383811    VPBX    60
+74996383812    VPBX    60
+74996383813    VPBX    60
+74996383814    VPBX    60
+74996383815    VPBX    60
+74996383816    VPBX    60
+74996383817    VPBX    60
+74996383818    VPBX    60
+74996383819    VPBX    60
+74996383820    VPBX    60
+74996383821    VPBX    60
+74996383822    VPBX    60
+74996383823    VPBX    60
+74996383824    VPBX    60
+74996383825    VPBX    60
+74996383826    VPBX    60
+74996383827    VPBX    60
+74996383828    VPBX    60
+74996383829    VPBX    60
+74996383830    VPBX    60
+74996383831    VPBX    60
+74996383832    VPBX    60
+74996383833    VPBX    60
+74996383834    VPBX    60
+74996383835    VPBX    60
+74996383836    VPBX    60
+74996383837    VPBX    60
+74996383838    VPBX    60
+74996383839    VPBX    60
+74996383840    VPBX    60
+74996383841    VPBX    60
+74996383842    VPBX    60
+74996383843    VPBX    60
+74996383844    VPBX    60
+74996383845    VPBX    60
+74996383846    VPBX    60
+74996383847    VPBX    60
+74996383848    VPBX    60
+74996383849    VPBX    60
+74996383850    VPBX    60
+74996383851    VPBX    60
+74996383852    VPBX    60
+74996383853    VPBX    60
+74996383854    VPBX    60
+74996383855    VPBX    60
+74996383856    VPBX    60
+74996383857    VPBX    60
+74996383858    VPBX    60
+74996383859    VPBX    60
+74996383860    VPBX    60
+74996383861    VPBX    60
+74996383862    VPBX    60
+74996383863    VPBX    60
+74996383864    VPBX    60
+74996383865    VPBX    60
+74996383866    VPBX    60
+74996383867    VPBX    60
+74996383868    VPBX    60
+74996383869    VPBX    60
+74996383870    VPBX    60
+74996383871    VPBX    60
+74996383872    VPBX    60
+74996383873    VPBX    60
+74996383874    VPBX    60
+74996383875    VPBX    60
+74996383876    VPBX    60
+74996383877    VPBX    60
+74996383878    VPBX    60
+74996383879    VPBX    60
+74996383880    VPBX    60
+74996383881    VPBX    60
+74996383882    VPBX    60
+74996383883    VPBX    60
+74996383884    VPBX    60
+74996383885    VPBX    60
+74996383886    VPBX    60
+74996383887    VPBX    60
+74996383888    VPBX    60
+74996383889    VPBX    60
+74996383890    VPBX    60
+74996383891    VPBX    60
+74996383892    VPBX    60
+74996383893    VPBX    60
+74996383894    VPBX    60
+74996383895    VPBX    60
+74996383896    VPBX    60
+74996383897    VPBX    60
+74996383898    VPBX    60
+74996383899    free    60
+74996383900    VPBX    60
+74996383901    VPBX    60
+74996383902    VPBX    60
+74996383903    VPBX    60
+74996383904    VPBX    60
+74996383905    VPBX    60
+74996383906    VPBX    60
+74996383907    VPBX    60
+74996383908    VPBX    60
+74996383909    VPBX    60
+74996383910    VPBX    60
+74996383911    VPBX    60
+74996383912    VPBX    60
+74996383913    VPBX    60
+74996383914    VPBX    60
+74996383915    VPBX    60
+74996383916    VPBX    60
+74996383917    VPBX    60
+74996383918    VPBX    60
+74996383919    VPBX    60
+74996383920    VPBX    60
+74996383921    VPBX    60
+74996383922    VPBX    60
+74996383923    VPBX    60
+74996383924    VPBX    60
+74996383925    VPBX    60
+74996383926    VPBX    60
+74996383927    VPBX    60
+74996383928    VPBX    60
+74996383929    VPBX    60
+74996383930    VPBX    60
+74996383931    VPBX    60
+74996383932    VPBX    60
+74996383933    VPBX    60
+74996383934    VPBX    60
+74996383935    VPBX    60
+74996383936    VPBX    60
+74996383937    VPBX    60
+74996383938    VPBX    60
+74996383939    VPBX    60
+74996383940    VPBX    60
+74996383941    VPBX    60
+74996383942    VPBX    60
+74996383943    VPBX    60
+74996383944    VPBX    60
+74996383945    VPBX    60
+74996383946    VPBX    60
+74996383947    VPBX    60
+74996383948    VPBX    60
+74996383949    VPBX    60
+74996383950    VPBX    60
+74996383951    VPBX    60
+74996383952    VPBX    60
+74996383953    VPBX    60
+74996383954    VPBX    60
+74996383955    VPBX    60
+74996383956    VPBX    60
+74996383957    VPBX    60
+74996383958    VPBX    60
+74996383959    VPBX    60
+74996383960    VPBX    60
+74996383961    VPBX    60
+74996383962    VPBX    60
+74996383963    VPBX    60
+74996383964    VPBX    60
+74996383965    VPBX    60
+74996383966    VPBX    60
+74996383967    VPBX    60
+74996383968    VPBX    60
+74996383969    VPBX    60
+74996383970    VPBX    60
+74996383971    VPBX    60
+74996383972    VPBX    60
+74996383973    VPBX    60
+74996383974    VPBX    60
+74996383975    VPBX    60
+74996383976    VPBX    60
+74996383977    VPBX    60
+74996383978    VPBX    60
+74996383979    VPBX    60
+74996383980    VPBX    60
+74996383981    VPBX    60
+74996383982    VPBX    60
+74996383983    VPBX    60
+74996383984    VPBX    60
+74996383985    VPBX    60
+74996383986    VPBX    60
+74996383987    VPBX    60
+74996383988    VPBX    60
+74996383989    VPBX    60
+74996383990    VPBX    60
+74996383991    VPBX    60
+74996383992    VPBX    60
+74996383993    VPBX    60
+74996383994    VPBX    60
+74996383995    VPBX    60
+74996383996    VPBX    60
+74996383997    VPBX    60
+74996383998    VPBX    60
+74996383999    VPBX    60
+74952210413    VPBX    270
+74952210456    VPBX    270
+74952210465    VPBX    270
+74952210469    VPBX    270
+74952210478    VPBX    270
+74952210482    VPBX    270
+74952210517    VPBX    270
+74952210523    VPBX    270
+74952210532    VPBX    270
+74952210538    VPBX    270
+74952210539    VPBX    270
+74952210645    VPBX    270
+74952210652    VPBX    270
+74952210655    VPBX    270
+74952210659    VPBX    270
+74952210689    stop    270
+74952210729    VPBX    270
+74952210747    VPBX    270
+74952210754    VPBX    270
+74952210763    VPBX    270
+74952210771    VPBX    270
+74952210772    VPBX    270
+74952210795    VPBX    270
+74952210796    VPBX    270
+74952210819    stop    270
+74952210826    VPBX    270
+74952210827    stop    270
+74952210887    VPBX    270
+74952210906    VPBX    270
+74952210908    VPBX    270
+74952210991    VPBX    270
+74952210992    VPBX    270
+74955444307    VPBX    270
+74955444308    VPBX    270
+74955444309    VPBX    270
+74955444311    VPBX    270
+74955444350    stop    270
+74955444366    VPBX    270
+74955444390    VPBX    270
+74955444392    stop    270
+74955444603    VPBX    270
+74955444604    VPBX    270
+74955444605    VPBX    270
+74955444608    VPBX    270
+74955444609    stop    270
+74955444614    VPBX    270
+74955444615    stop    270
+74955444620    stop    270
+74955444623    VPBX    270
+74955444624    VPBX    270
+74955444638    stop    270
+74955444641    stop    270
+74955444648    stop    270
+74955444680    VPBX    270
+74955444681    stop    270
+74955444682    stop    270
+74955444685    VPBX    270
+74955444693    VPBX    270
+74955444698    VPBX    270
+74996383172    VPBX    85
+74996383173    VPBX    85
+74996383174    VPBX    85
+74996383175    VPBX    85
+74996383176    VPBX    85
+74996383177    VPBX    85
+74996383178    VPBX    85
+74996383179    VPBX    85
+74996383182    VPBX    85
+74996383183    VPBX    85
+74996383184    VPBX    85
+74996383185    VPBX    85
+74996383186    VPBX    85
+74996383187    VPBX    85
+74996383188    VPBX    85
+74996383189    VPBX    85
+74996383190    VPBX    85
+74996383180    VPBX    85
+74996383192    VPBX    85
+74996383193    VPBX    85
+74996383194    VPBX    85
+74996383195    free    85
+74996383196    VPBX    85
+74996383197    VPBX    85
+74996383198    VPBX    85
+74996383199    VPBX    85
+74996383200    VPBX    85
+74996383201    VPBX    85
+74996383203    VPBX    85
+74996383204    VPBX    85
+74996383205    free    85
+74996383206    VPBX    85
+74996383207    VPBX    85
+74996383208    VPBX    85
+74996383209    VPBX    85
+74996383210    VPBX    85
+74996383211    VPBX    85
+74996383213    VPBX    85
+74996383214    VPBX    85
+74996383215    VPBX    85
+74996383216    VPBX    85
+74996383217    VPBX    85
+74996383218    VPBX    85
+74996383219    VPBX    85
+74996383221    VPBX    85
+74996383223    VPBX    85
+74996383224    VPBX    85
+74996383225    VPBX    85
+74996383226    VPBX    85
+74996383227    VPBX    85
+74996383228    VPBX    85
+74996383229    VPBX    85
+74996383230    VPBX    85
+74996383231    VPBX    85
+74996383234    VPBX    85
+74996383235    VPBX    85
+74996383236    VPBX    85
+74996383237    VPBX    85
+74996383238    VPBX    85
+74996383239    VPBX    85
+74996383240    VPBX    85
+74996383241    VPBX    85
+74996383243    VPBX    85
+74996383244    VPBX    85
+74996383245    VPBX    85
+74996383246    VPBX    85
+74996383247    VPBX    85
+74996383248    VPBX    85
+74996383249    VPBX    85
+74996383250    VPBX    85"""
+
+sipout_numbers = sipout_numbers.splitlines()
+
+from data_centr.views import cost_dc, add_record_in_priority_of_services, add_record_in_data_centr_payment
+
+user_obj = User.objects.get(username='SipOut')
+profile = Profile.objects.get(user=user_obj)
+bac = profile.billing_account
+
+# Добавляем запись в таблицу data_centr_zakazy для дальнейшего списания денег
+status_obj = Status_zakaza.objects.get(id=2)
+service_type_obj = Service_type.objects.get(id=3)
+os_obj = OS.objects.get(id=1)
+cpu_obj = CPU.objects.get(id=1)
+ram_obj = RAM.objects.get(id=1)
+hdd_obj = HDD.objects.get(id=1)
+hidden_id = []
+region = 1
+
+for l in sipout_numbers:
+    add_number, t, id_tarif = l.split('    ')
+    if add_number in exclude_numbers:
+        continue
+    print add_number
+    try:
+        external_number_obj = ExternalNumber.objects.get(number=add_number)
+    except ExternalNumber.DoesNotExist:
+        external_number_obj = ExternalNumber(number=add_number)
+
+    tariff_obj = ''
+    connection_cost = Price_connection.objects.get(id=1)
+
+    if id_tarif == '60':
+        tariff_obj = Tariff.objects.get(id=20)
+        tar = 11
+    if id_tarif == '85':
+        tariff_obj = Tariff.objects.get(id=21)
+        tar = 12
+    if id_tarif == '270':
+        tariff_obj = Tariff.objects.get(id=22)
+        tar = 13
+    if id_tarif == '400':
+        tariff_obj = Tariff.objects.get(id=23)
+        tar = 14
+
+    external_number_obj.phone_numbers_group = None
+    external_number_obj.account = bac
+    external_number_obj.is_free = False
+    external_number_obj.is_reserved = False
+    external_number_obj.assigned_at = datetime.datetime.now()
+    external_number_obj.region = region
+    external_number_obj.sip_address = 'pbx9.sipout.net'
+    external_number_obj.dinging = True
+    external_number_obj.tarif_group = tar
+    external_number_obj.save()
+
+
+
+
+
+
+#    zakaz = Zakazy(
+#                 bill_account=bac,
+#                 section_type=1,
+#                 status_zakaza=status_obj,
+#                 service_type=service_type_obj,
+#                 tariff=tariff_obj,
+#                 connection_cost=connection_cost,
+#                 date_create=datetime.datetime.now(),
+#                 date_activation=datetime.datetime.now(),
+#                 os=os_obj,
+#                 cpu=cpu_obj,
+#                 ram=ram_obj,
+#                 hdd=hdd_obj,
+#                 )
+#    zakaz.save()
+#    zakaz.ext_numbers.add(external_number_obj)
+#    zakaz.save()
+#    cost = float(cost_dc(zakaz.id))
+#    zakaz.cost = '%.2f' % cost
+#    zakaz.save()
+#
+#
+#
+#
+#
+#
+#
+#
+#    findocsign_list = package_obj.findoc_sign.all()
+#    for findocsign_obj in findocsign_list:
+#        if findocsign_obj.findoc.slug == 'localphone_orderform':
+#            break
+#
+#    findocsign_obj =
+#    fin_doc_zakaz = FinDocSignedZakazy(
+#                                       fin_doc=findocsign_obj,
+#                                       zakaz_id=zakaz.id,
+#                                       )
+#    fin_doc_zakaz.save()
+#     добавляем по очереди записи в две таблицы
+#
+#
+#    add_record_in_data_centr_payment(zakaz)
+#    add_record_in_priority_of_services(zakaz)

@@ -1,0 +1,52 @@
+{% load i18n form_tags %}
+<form id='form_auth'>
+	<table class="type-4 modal">
+    	<caption>
+        	<h2 class="title">Вход в личный кабинет</h2>
+        </caption>
+        <tbody>
+        	<tr>
+            	<td>
+                {% if errors.error_auth %}
+                    <div class="status status-error">
+                        <i class="ico"></i>
+                        <div class="status-i">
+                            <p>Заполните правильно все поля!</p>
+                        </div>
+                    </div>
+   				{% endif %} 
+                </td>
+            </tr>
+        	<tr>
+            	<td style="padding: 0; height: auto;">
+                    <div class="popup-form login2-form" style="min-height: 100px;">
+                        {% for field2 in form_login %}
+                        	{% form_field field2 block %}
+                        {% endfor %}
+                        <div style="clear: both"></div>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+            	<td style="padding-right: 5px; padding-bottom: 10px;">
+                    <div class="form-submit-right">
+                        <input class="btn right" type="button" value='НАЗАД' onclick="step_zakaz('{{ server_id }}')"/>
+                        <input class="btn left" type="button" value="ДАЛЕЕ" onclick="step_final_virtual_server('login')"/>
+                        <input type="hidden" name="data" id="textfield" value="{{ data }}" /></input>
+                    </div>
+                </td>
+            </tr>
+        </tbody>
+     </table>  
+</form>
+
+
+<script>
+$(document).ready(function(){
+			$("label[for='id_username']").next().remove();
+			$("label[for='id_username' ]").append('<font color = red>*</font>');
+			$("label[for='id_password']").next().remove();
+			$("label[for='id_password' ]").append('<font color = red>*</font>');
+	
+	})
+</script>

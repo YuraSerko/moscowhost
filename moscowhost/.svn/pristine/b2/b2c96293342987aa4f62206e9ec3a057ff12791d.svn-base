@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+# coding: utf-8
+import sys, os
+import datetime
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from billing.models import BillserviceAccount
+from data_centr.models import Zakazy, Data_centr_payment
+from data_centr.views import send_mail_check, add_document_in_dict_for_send
+from account.models import Profile
+from findocs.models import Rules_of_drawing_up_documents, Check, Act, Invoice, Package_on_connection_of_service, FinDocSigned
+from findocs.views import create_package
+from django.contrib.auth.models import User
+from django.db.models import Q
+from django.db import connections
+import log
+from dateutil.relativedelta import relativedelta
+from django.core.urlresolvers import reverse  # @UnusedImport
+
+now = datetime.datetime.now()
+# компануем список аккаунтов из действующих заказов
+dict_user = FinDocSigned.objects.filter(findoc__slug__in=['telematic_services_contract', 'telematic_data_centr', 'localphone_services_contract', 'dogovor_oferta']).order_by('signed_by').distinct().values('signed_by')
+# приводим список в порядок
+spis_user = [i["signed_by"] for i in dict_user]
+print 'count user = %s' % len(spis_user)
+spis_govno_user = []
+spis_not_clear_govno_user = []
+for user_id in spis_user:
+    package_queryset = Package_on_connection_of_service.objects.filter(user__id=user_id, activate=False, deactivate=False)
+    if package_queryset:
+        spis_govno_user.append(user_id)
+print 'count govno user = %s' % len(spis_govno_user)
+for user_id in spis_govno_user:
+    user_obj = User.objects.get(id=user_id)
+    count_day = now - user_obj.last_login
+    if count_day.days > 2:
+        package_obj = Package_on_connection_of_service.objects.get(user=user_obj, activate=False, deactivate=False)
+        package_obj.deactivate = True
+        package_obj.save()
+    else:
+        spis_not_clear_govno_user.append(user_obj.id)
+        print user_obj.username, user_obj.last_login
+print 'count not clear govno user = %s' % len(spis_not_clear_govno_user)
+if not spis_not_clear_govno_user:
+    for user_id in spis_user:
+        user_obj = User.objects.get(id=user_id)
+        successfully_create = create_package(user_obj,
+                            reverse('change_our_requisites'),
+                            reverse('account_profile'),
+                            '',
+                            ['dop_soglashenie_izmenenie_requisites'])
+        if not successfully_create:
+            print "error with user_id = %s" % user_id
+            break
+print 'end script'
+

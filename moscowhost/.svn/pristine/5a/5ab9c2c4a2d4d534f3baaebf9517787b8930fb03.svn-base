@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+
+import sys, os
+# sys.path.append('../../')
+# sys.path.append('../')
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+from django.contrib.sessions.models import Session
+from django.contrib.auth.models import User
+from billing.models import BillserviceAccount
+#from billing.models import *
+#from data_centr.models import Data_centr_payment
+from devices.models import *
+from page.models import *
+from data_centr.models import *
+from data_centr.models import Data_centr_payment, Zakazy
+from data_centr.models import Data_centr_payment, Zakazy
+
+from findocs.models import  Package_on_connection_of_service
+
+from account.models import Profile
+from data_centr.models import Zakazy
+
+#from findocs.models import Package_on_connection_of_service
+from  findocs.views import create_package 
+from django.core.urlresolvers import reverse
+
+
+zakaz = Zakazy.objects.get(id = 303)
+
+print zakaz
+
+print 'start'
+ 
+ 
+profile_obj = Profile.objects.get(billing_account_id = zakaz.bill_account.id)
+             
+             
+user_obj = User.objects.get(id=profile_obj.user.id)
+ 
+
+#print user_obj
+
+ 
+ 
+print 'previously_del_zakaz'
+# successfully_create = create_package(user_obj,
+#                                 '/account/demands_dc/zakaz/%s/' % zakaz.id,
+#                                 reverse('my_data_centr'),
+#                                 '',
+#                                 ['dop_soglashenie_k_dogovoru'])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+print 'end'

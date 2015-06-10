@@ -1,0 +1,65 @@
+# coding: utf-8
+import threading, Queue, time
+class Pool(object):
+    queue = Queue.Queue()
+    workers = []
+
+    def __init__(self, workers, acceleration=0):
+        self.max_workers = workers
+        self.acceleration = acceleration
+
+    def __create_worker(self, queue, wait_task):
+        worker = Worker(queue, wait_task)
+        self.workers.append(worker)
+        worker.start()
+
+    def add(self, target, *args, **kwargs):
+        if not callable(target):
+            return False
+        self.queue.put((target, args, kwargs))
+        return True
+
+    #"""
+    #����� ������:
+    #wait_task - ����� ����� ���� ������� ������.  ���� False � ��� ����� � ������� - worker's ����� ������� ����� ���������� ����� ������.
+    #wait_threads - ���� True, ������������� �������� ������ ����� ����� start �� ���������� ���� �������
+    #"""
+
+    def start(self, wait_task=False, wait_threads=True):
+        for i in range(self.max_workers):
+            if wait_task or not self.queue.empty():
+                self.__create_worker(self.queue, wait_task)
+                time.sleep(self.acceleration)
+
+        if wait_threads:
+            for worker in self.workers:
+                worker.join()
+
+    def stop(self):
+        for worker in self.workers:
+            worker.running = False
+
+
+class Worker(threading.Thread):
+    running = True
+
+    def __init__(self, queue, wait_task):
+        super(Worker, self).__init__()
+        self.wait_task = wait_task
+        self.queue = queue
+
+    def run(self):
+        while self.running:
+            try:
+                target, args, kwargs = self.queue.get(self.wait_task, 0.1)
+                target(*args, **kwargs)
+            except Queue.Empty:
+                time.sleep(0.1)
+                if not self.wait_task:
+                    self.running = False
+
+
+
+
+
+

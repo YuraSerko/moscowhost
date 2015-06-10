@@ -1,0 +1,42 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags lib_tags %}
+
+{% block content %}
+
+<script type="text/javascript">
+ function load()
+ {
+	  window.document.pay.submit();
+	  return;
+ }
+ </script>
+
+<p class="breadcrumbs"><a href="#">Финансы</a><span>→</span><a href="/account/payment/">Способы оплаты услуг</a><span>→</span><a href="/account/payment/webmoney/">Пополнение счета webmoney</a><span>→</span>Подтверждение</p>
+
+<h1 class="title">Подтверждение</h1>
+
+<!--<body onload="load()">-->
+
+<form id=pay name=pay method="POST" action="https://paymaster.ru/Payment/Init">
+	<h4 class="h4_style">{% trans "Пожалуйста ожидайте. Сейчас произойдет перенаправление на страницу оплаты" %}.</h4>
+	<h4 class="h4_style">{% trans "Если этого не произошло, нажмите кнопку ниже" %}:</h4>
+	<div class="form-submit-left">
+		<input class="bt bt-blue2" type="submit" value={% trans "Оплатить" %}>
+	</div>
+	<p>
+		<input type="hidden" name="LMI_MERCHANT_ID" value="{{ merchant_id }}">
+		<input type="hidden" name="LMI_PAYMENT_AMOUNT" value="{{ amount }}">
+		<input type="hidden" name="LMI_CURRENCY" value="{{ currency }}">
+		<input type="hidden" name="LMI_PAYMENT_NO" value="{{ payment_id }}">
+		<input type="hidden" name="LMI_PAYMENT_DESC" value="{{ payment_name }}">
+		<input type="hidden" name="LMI_PAYMENT_DESC_BASE64" value="{{ payment_name_base64 }}" />
+		<input type="hidden" name="LMI_SIM_MODE" value="{{ sim_mode }}">
+		<input type="hidden" name="LMI_PAYER_PHONE_NUMBER" value="{{ payer_phone_number }}">
+		<input type="hidden" name="LMI_PAYER_EMAIL" value="{{ payer_email }}">
+		<input type="hidden" name="LMI_EXPIRES" value="{{ expires }}">
+		<input type="hidden" name="account_id" value="{{ account_id }}">
+		<input type="hidden" name="type" value="{{ type }}">
+	</p>
+</form>
+
+{% endblock %}

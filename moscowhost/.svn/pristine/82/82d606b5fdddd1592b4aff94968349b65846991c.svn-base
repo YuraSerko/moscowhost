@@ -1,0 +1,23 @@
+# -*-coding=utf-8-*-
+import datetime
+import trans
+import sys, os
+import psycopg2
+
+now = datetime.datetime.now()
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from installed_mikrotiks.models import Mikrotik
+import datetime
+
+
+now = datetime.datetime.now()
+print u"\nStart in: %s" % now.strftime("%Y-%m-%d %H:%M:%S")
+
+for mik_obj in Mikrotik.objects.all():
+    mik_obj.save()
+    
+    
+finish = datetime.datetime.now()
+print u"\nEnd in: %s" % ((finish - now))

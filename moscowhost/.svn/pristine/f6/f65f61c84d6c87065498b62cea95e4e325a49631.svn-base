@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys, os
+import datetime
+import copy
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from billing.models import BillserviceAccount
+from data_centr.models import Zakazy, Data_centr_payment, Return_payment
+from data_centr.views import send_mail_check, add_document_in_dict_for_send
+from account.models import Profile
+from findocs.models import Rules_of_drawing_up_documents, Check, Act, Invoice, FinDocSigned, Package_on_connection_of_service
+from django.contrib.auth.models import User
+from django.db.models import Q
+from django.db import connections
+from dateutil.relativedelta import relativedelta
+
+spis_payment = []
+payment_qs = Data_centr_payment.objects.filter(Q(year=2014) & Q(month=2) & Q(zakaz__service_type__in=[1, 2, 3, 9, 10, 11, 12]) & Q(cost__gt=0)).exclude(bill_account__id__in=[2971, 30, 305])
+for payment_obj in payment_qs:
+    if payment_obj.payment_date:
+        spis_payment.append(payment_obj)
+    else:
+        try:
+            last_payment_obj = Data_centr_payment.objects.filter(Q(year=2014) & Q(month=1) & Q(zakaz=payment_obj.zakaz))
+            if last_payment_obj.payment_date:
+                spis_payment.append(payment_obj)
+        except:
+            pass
+for payment_obj in spis_payment:
+    count_zakaz = 0
+    zakaz = payment_obj.zakaz
+    for payment_obj2 in spis_payment:
+        if payment_obj2.zakaz == zakaz:
+            count_zakaz += 1
+    if count_zakaz >= 2:
+        print 'povtorka = %s, zakaz = %s' % (count_zakaz, zakaz.id)
+
+for payment_obj in spis_payment:
+    try:
+        return_payment_obj = Return_payment.objects.get(payment=payment_obj)
+    except:
+        return_payment_obj = Return_payment(
+                                            payment=payment_obj,
+                                            return_payment=False,
+                                            send_mail=False,
+                                            )
+        return_payment_obj.save()
+print len(spis_payment)
+print spis_payment
+print 'end script at %s' % datetime.datetime.now()
+

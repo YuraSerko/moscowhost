@@ -1,0 +1,41 @@
+<!-- добавим какой то div для отображения overleem -->
+<script>
+
+/*
+$(document).ready(function(){
+	//alert('s8 document ready');
+	//$('#title_webmoney').next().remove();
+	//if ($('#title_webmoney').next().hasClass('status-error')) {
+		//alert('remove');
+		//$('#title_webmoney').next().remove(); //}
+	//alert('end document ready');
+})
+*/
+
+</script>
+<div class="tint" id="tint_success_reg_complete" style="display: block;"></div>
+<div id="div_success_reg_complete" style="width: 500px; position: fixed; z-index: 600; border-radius: 3px; top: 40% !important; left: 38% !important; background: white;">
+  
+  
+	<a class="popup_personal-close" onclick ='$("#div_success_reg_complete").fadeOut("fast"); $("#tint_success_reg_complete").fadeOut("fast"); document.location="/"''></a>
+	<table class="type-4 modal">
+		<caption>
+	    	<h1 class="title" id  = "ending">Завершение</h1>
+	    </caption>
+	    <tbody>
+	    	<tr>
+	        	<td>
+	                <h3 align="center">Запрос на регистрацию успешно создан</h3>
+	                {% if payment_page_reg %}
+	                 	<p align="center">Для завершения регистрации и оплаты услуги, Вам необходимо пройти по ссылке, присланной Вам в письме.</p>
+	                {% else %}
+	                <p align="center">Для завершения регистрации и подключения услуги, Вам необходимо пройти по ссылке, присланной Вам в письме.</p>
+	            	{% endif %}
+	            </td>
+	        </tr>
+	    </tbody>
+	</table>
+
+  </div> 
+
+

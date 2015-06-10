@@ -1,0 +1,65 @@
+# coding: utf-8
+
+import sys, os
+import time
+from grab import Grab
+from lxml import html
+import urllib2, urllib, cookielib
+from BeautifulSoup import BeautifulSoup
+import logging
+import re
+import trans
+import traceback
+#from lib.mail import send_email
+#from django.conf import settings
+
+
+
+# from beeline import converse_str_to_int, ExceptionPageDontAvalaible, ExceptionChangeLocationOfTags, ExceptionIncorrectData
+
+print 'BEGIN'
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from grab import Grab
+from hotspot.models import Video
+from hotspot.models import VideoGenre
+import datetime
+
+
+all_o = Video.objects.all()
+for i, a_o in enumerate(all_o):
+    ob = Video.objects.filter(translit_video_name__exact=a_o.translit_video_name ) # Проверка действительна если удалены пробелы в начале и конце значения поля
+    print i
+    if ob.count() > 1 and ob.count() < 3:
+        print a_o.title, a_o.orig_title
+        print "There are 2 same names"
+        for o in ob[1:]:
+            
+            print 'rename second object... adding number 2 to the end ' 
+            o.translit_video_name = str(o.translit_video_name)+'_2'
+            o.save()
+    if ob.count() > 2 and ob.count() < 4:
+        print "There are 3 same names"
+        n = 2
+        for o in ob[1:]:
+            o.translit_video_name = str(o.translit_video_name)+'_'+str(n)
+            o.save()
+            n = n+1
+    if ob.count() > 3:
+        mes = u"Копий поля translit_video_name больше 3-х экземпляров!"
+        print mes
+        #send_email('Копии поля translit_video_name', mes, settings.DEFAULT_FROM_EMAIL, ["Zz1n@globalhome.su", 'sales@globalhome.su', 'noc@globalhome.su'])
+
+
+
+
+
+
+
+
+
+
+
+
+

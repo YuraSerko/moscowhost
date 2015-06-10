@@ -1,0 +1,363 @@
+# -*-coding: utf-8 -*-
+
+import urllib, urllib2
+from decimal import Decimal
+from xml_helper import xml2obj
+import datetime
+import os
+import sys
+# import log
+
+TEST_QIWI = False
+term_id = '2163'
+HOST = "http://ishop.qiwi.ru/xml"
+term_password = 'ukj,fk[jvt!@#'
+lifetime = 48  # В часах
+ALARM_SMS = 0
+ALARM_CALL = 0
+proxy_host = ''
+proxy_port = 8080
+proxy_username = ''
+proxy_password = ''
+MAIL_SUBJECT = u'Карта предоплаты GlobalHome'
+MAIL_TEXT = u"""Поздравляем, вы успешно приобрели карту GlobalHome
+
+Номинал: {{ summ }}
+Логин: {{ login }}
+Pin-код: {{ password }}
+
+Для активации карты авторизуйтесь на HotSpot,
+либо пополните счет пройдя по ссылке:
+http://globalhome.su/account/payment/hotspot-card/
+"""
+
+params = u"""<?xml version="1.0" encoding="utf-8"?>
+<request>
+    <protocol-version>4.00</protocol-version>
+    <request-type>30</request-type>
+    <extra name="password">df[vehrf2007</extra>
+    <terminal-id>11468</terminal-id>
+    <extra name="comment"></extra>
+    <extra name="to-account">1234567890</extra>
+    <extra name="amount">100.00</extra>
+    <extra name="txn-id">123</extra>
+    <extra name="ALARM_SMS">0</extra>
+    <extra name="ACCEPT_CALL">0</extra>
+    <extra name="ltime">60</extra>
+</request>
+"""
+params = {'get_balance':u"""<?xml version="1.0" encoding="utf-8"?>
+<request>
+<protocol-version>4.00</protocol-version>
+<request-type>3</request-type>
+<extra name="password">%s</extra>
+<terminal-id>%s</terminal-id>
+</request>
+""",
+'create_invoice':u"""<?xml version="1.0" encoding="utf-8"?>
+<request>
+    <protocol-version>4.00</protocol-version>
+    <request-type>30</request-type>
+    <extra name="password">%s</extra>
+    <terminal-id>%s</terminal-id>
+    <extra name="to-account">%%s</extra>
+    <extra name="amount">%%s</extra>
+    <extra name="txn-id">%%s</extra>
+    <extra name="ALARM_SMS">%s</extra>
+    <extra name="ACCEPT_CALL">%s</extra>
+    <extra name="ltime">%%s</extra>
+    <extra name="comment">%%s</extra>
+</request>
+""" % (term_password, term_id, ALARM_SMS, ALARM_CALL,),
+'get_invoices_status':u"""<?xml version="1.0" encoding="utf-8"?>
+<request>
+    <protocol-version>4.00</protocol-version>
+    <request-type>33</request-type>
+    <extra name="password">%s</extra>
+    <terminal-id>%s</terminal-id>
+    <bills-list>
+    %%s
+    </bills-list>
+</request>
+""" % (term_password, term_id),
+'get_invoices':u"""<?xml version="1.0" encoding="utf-8"?>
+<request>
+    <protocol-version>4.00</protocol-version>
+    <request-type>28</request-type>
+     <terminal-id>%s</terminal-id>
+    <extra name="password">%s</extra>
+    <extra name="dir">0</extra>
+    <extra name="from">%s 00:00:00</extra>
+    <extra name="to">%s 23:59:59</extra>
+</request>
+""",
+'accept_payment':u"""<?xml version="1.0" encoding="utf-8"?>
+<request>
+    <protocol-version>4.00</protocol-version>
+    <request-type>29</request-type>
+    <terminal-id>%s</terminal-id>
+    <extra name="password">%s</extra>
+    <extra name="status">accept</extra>
+    <extra name="bill-id">%s</extra>
+    <extra name="trm-txn-id"></extra>
+</request>
+"""
+}
+
+result_codes = {'-1':u'Произошла ошибка. Проверьте номер телефона и пароль',
+'-2':u'Произошла ошибка. Счёт не может быть подтверждён. Возможно у вас недостаточно средств или включено подтверждение действий по SMS',
+'0':u'Успех',
+'13':u'Сервер занят, повторите запрос позже',
+'150':u'Ошибка авторизации (неверный логин/пароль)',
+'210':u'Счет не найден',
+'215':u'Счет с таким txn-id уже существует',
+'241':u'Сумма слишком мала',
+'242':u'Превышена максимальная сумма платежа – 15 000р.',
+'278':u'Превышение максимального интервала получения списка счетов',
+'298':u'Агента не существует в системе',
+'300':u'Неизвестная ошибка',
+'330':u'Ошибка шифрования',
+'339':u'Не пройден контроль IP-адреса',
+'341':u'Неизвестная ошибка',
+'353':u'Включено SMS подтверждение действий. Невозможно проверить баланс.',
+'370':u'Превышено максимальное кол-во одновременно выполняемых запросов',
+'1000':u'Ошибка выполнения запроса.',
+
+}
+
+payment_codes = {
+'18':u'Undefined',
+'50':u'Выставлен',
+'52':u'Проводится',
+'60':u'Оплачен',
+'150':u'Отменен (ошибка на терминале)',
+'151':u'Отменен (ошибка авторизации: недостаточно средств на балансе, отклонен абонентом при оплате с лицевого счета оператора сотовой связи и т.п.).',
+'160':u'Отменен',
+'156':u'Отменен',
+'161':u'Отменен (Истекло время)',
+}
+def make_request(xml):
+    # print xml
+    if proxy_host:
+        if proxy_username:
+            proxy = urllib2.ProxyHandler({'http': 'http://%s:%s@%s:%s' % (proxy_username, proxy_password, proxy_host, proxy_port,)})
+        else:
+            proxy = urllib2.ProxyHandler({'http': 'http://%s:%s' % (proxy_host, proxy_port,)})
+        auth = urllib2.HTTPBasicAuthHandler()
+        opener = urllib2.build_opener(proxy, auth, urllib2.HTTPHandler)
+        urllib2.install_opener(opener)
+    request = urllib2.Request(HOST, xml.encode('utf-8'))
+    try:
+        response = urllib2.urlopen(request)
+        return response.read()
+    except Exception, e:
+        print e
+    return """<response><result-code fatal="true">1000</result-code>"""
+
+def status_code(obj):
+    if obj.result_code.data == '0':
+        return int(obj.result_code.data), result_codes[obj.result_code.data]
+    return int(obj.result_code.data), result_codes[obj.result_code.data]
+
+def payment_code(obj):
+    if obj.status == '50':
+        return int(obj.status), payment_codes[obj.status]
+    return int(obj.status), payment_codes[obj.status]
+
+def get_balance(phone=None, password=None):
+    if not (phone and password):
+        xml = make_request(params['get_balance'] % (term_password, term_id))
+    if phone and password:
+        xml = make_request(params['get_balance'] % (password, phone))
+    if not xml: return None
+    o = xml2obj(xml)
+    status = status_code(o)
+    if status[0] == 0:
+        if o.extra[0]['name'] == 'BALANCE':
+            return o.extra[0].data, status[1]
+    else:
+        return 0, status[1]
+
+def create_invoice(phone_number, transaction_id, summ=0, comment='', lifetime=48):
+    xml = make_request(params['create_invoice'] % (phone_number, summ, transaction_id, lifetime, comment,))
+    if not xml: return None
+    o = xml2obj(xml)
+    status = status_code(o)
+    return status
+
+
+def get_invoice_id(phone, password, transaction_id, date):
+    date_start = (date - datetime.timedelta(hours=24)).strftime("%d.%m.%Y")
+    date_end = (date + datetime.timedelta(hours=24)).strftime("%d.%m.%Y")
+    xml = make_request(params['get_invoices'] % (phone, password, date_start, date_end))
+    if not xml: return None
+    # print xml
+    o = xml2obj(xml)
+    if not o.account_list: return -1
+    for a in o.account_list.account:
+        if a['from'].prv == '%s' % term_id and a.term_ransaction == "%s" % transaction_id:
+            return a.id
+    return -1
+
+def accept_invoice_id(phone, password, transaction_id, date):
+    txn_id = get_invoice_id(phone=phone, password=password, transaction_id=transaction_id, date=datetime.datetime.now())
+    if txn_id != -1:
+        xml = make_request(params['accept_payment'] % (phone, password, txn_id))
+        if not xml: return None
+        o = xml2obj(xml)
+        return status_code(o)
+    return -1, result_codes['-1']
+
+def process_invoices():
+
+    sys.path[0] = '../../'
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+    from billing.models import BillserviceAccount
+    from cards.models import BillserviceCard
+
+    import logging
+    # create Logging
+    LOG_FILENAME = 'qiwi_api.log'
+    formatter = logging.Formatter(u"%(asctime)s - %(levelname)s - %(message)s")
+    fl = logging.FileHandler(filename=LOG_FILENAME, encoding='utf-8')
+    fl.setLevel(logging.DEBUG)
+    fl.setFormatter(formatter)
+    log = logging.getLogger('qiwi')
+    log.setLevel(logging.DEBUG)
+    log.addHandler(fl)
+
+    from django.conf import settings
+    DATABASES, DEFAULT_FROM_EMAIL = settings.DATABASES, settings.DEFAULT_FROM_EMAIL
+    import psycopg2
+
+    try:
+        conn = psycopg2.connect("dbname=%(NAME)s user=%(USER)s host=%(HOST)s password=%(PASSWORD)s" % DATABASES['billing']);
+        cur = conn.cursor()
+    except Exception, x:
+        print "I am unable to connect to the database: %s" % x
+
+    cur.execute("SELECT id, phone, summ, account_id, login, type, email, phone_sms FROM payments_qiwi WHERE accepted=false AND deleted=false")
+    a = cur.fetchall()
+    if not a:
+        return
+    pattern = '<bill txn-id="%s"/>'
+    p = ''
+    for x in a:
+        p += pattern % x[0]
+    log.info(str(p))
+    # exit()
+    xml = make_request(params['get_invoices_status'] % p)
+    log.info("xml='%s'" % xml)
+    o = xml2obj(xml)
+    if status_code(o)[0] != 0: return
+
+    for x in a:
+        log.info('x=%s' % str(x))
+        p_code = p_status = ''
+        for item in o.bills_list.bill:
+            # log.info("item.id='%s'" % (item.id,))
+            try:
+                if int(item.id) == x[0]:
+                    p_code, p_status = payment_code(item)
+                    break
+            except:
+                continue
+        log.info("item.id='%s' p_code='%s' p_status='%s'" % (item.id, p_code, p_status))
+        if not p_code or not p_status:
+            continue
+        # p_code = 60
+        if p_code == 60:
+            if x[5] == 1:  # пополнение счета
+                try:
+                    cur.execute("""Insert into billservice_transaction (bill,account_id,type_id,approved,tarif_id,summ,description,created)
+                                     VALUES ('Пополнение счета через Qiwi',%s,'QIWI_PAYMENT',True,0,%s,'Qiwi payment',now())""",
+                                       (x[3], x[2])
+                                )
+                    cur.execute("UPDATE payments_qiwi SET accepted=True, date_accepted=now() WHERE id=%s", (x[0],))
+                    conn.commit()
+                except Exception, e:
+                    log.info(str(e))
+                    conn.rollback()
+
+            elif x[5] == 2:  # Продажа карт предоплаты
+
+                try:
+                    if not TEST_QIWI:
+                        """Получаем логин и пароль для карты доступа на указанную сумму"""
+                        # login, password = get_card(cur, float(x[2]), 5)
+
+                        card = BillserviceCard.generate_card(float(x[2]), '1')
+                        login, password = card.login, card.pin
+                        log.info("login=%s password=%s" % (login, password))
+                    else:
+                        login = password = '111'
+                except Exception, e:
+                    # log.info("except in row 292: %s" % e)
+                    log.info("Exception in qiwiapi: '%s'" % e)
+                    exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+                    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+                    log.info("Exception in qiwiapi: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+                    continue
+
+                log.info(u'TUT" %s' % x[7])
+                if x[7]:
+                    try:
+                        log.info(u'TUT1')
+                        num = '7' + x[7] if len(x[7]) == 10 else x[7]
+                        from payment.settings import SMS_TXT
+                        from lib.sms import send_sms
+                        r = send_sms(num, SMS_TXT % (login, password), log=log)
+                        if not r:
+                            log.info(u'Error send sms')
+                            # print u'Невозможно произвести платеж, ошибка отправки логина и пароля карты на указанный номер'
+                        else:
+                            log.info(u'SMS succesfully send')
+                    except Exception, e:
+                        log.info('1 %s' % e)
+                        # print u'Except Невозможно произвести платеж, ошибка отправки логина и пароля карты на указанный номер'
+                if x[6]:
+                    try:
+                        from lib.mail import send_email
+                        from django.template import Template, Context
+                        mail_context = {'summ' : x[2],
+                                        'password': password,
+                                        'login': login}
+                        subject = Template(MAIL_SUBJECT).render(Context(mail_context))
+                        text = Template(MAIL_TEXT).render(Context(mail_context))
+                        send_email(subject, text, DEFAULT_FROM_EMAIL, [x[6]])
+                        log.info(u'Email succesfully send')
+                    except Exception, e:
+                        log.info('2 %s' % e)
+                        # print u'Except Невозможно произвести платеж, ошибка отправки логина и пароля карты на указанный email'
+
+                cur.execute("UPDATE payments_qiwi SET accepted=True, date_accepted=now(), login=%s WHERE id=%s", (login, x[0],))
+                conn.commit()
+
+
+        elif p_code > 100:
+            cur.execute("UPDATE payments_qiwi SET deleted=True WHERE id=%s", (x[0],))
+            conn.commit()
+
+# def get_card(cur, sum, dealer_id, tarif_id=8):
+#    cur.execute("SELECT id,pin,login FROM billservice_card WHERE start_date<=CURRENT_DATE and end_date>CURRENT_DATE and type=3 and sold is Null and activated is NULL and tarif_id=%s and disabled=False LIMIT 1 FOR UPDATE;", (tarif_id,))
+#    try:
+#        id, pin, login = cur.fetchone()
+#    except Exception, e:
+#        log.info("SELECT id,pin,login FROM billservice_card WHERE start_date<=CURRENT_DATE and end_date>CURRENT_DATE and type=3 and sold is Null and activated is NULL and tarif_id=%s and disabled=False LIMIT 1 FOR UPDATE;" % (tarif_id,))
+#        log.info("get card error: '%s'" % (e))
+#        return '', ''
+#    if id and pin and login:
+#        cur.execute("UPDATE billservice_card SET nominal=%s, sold=now() WHERE id=%s", (sum, id,))
+#        cur.execute("Insert into billservice_salecard (prepayment,discount_sum,discount,paydeffer,dealer_id,sum_for_pay,created) Values (0, 0, 0, 0, %s, %s, now()) returning id", (dealer_id, sum,))
+#        salecard = cur.fetchone()
+#        cur.execute("Insert into billservice_salecard_cards (salecard_id,card_id) Values (%s, %s)", (salecard[0], id,))
+#        return login, pin
+#    else:
+#        log.info("id='%s' login='%s' pin='%s'" % (id, login, pin))
+#        return '', ''
+
+
+if __name__ == '__main__':
+    # Если запуск произведён руками
+    process_invoices()
+

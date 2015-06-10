@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+# coding: utf-8
+import psycopg2
+import sys
+import datetime
+
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+from settings import DATABASES
+print DATABASES['billing']
+conn2 = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur2 = conn2.cursor()
+cur2.connection.set_isolation_level(1)
+
+#cur2.execute("SELECT name FROM data_centr_ip")
+#print cur2.fetchall()
+#exit()
+import string
+lol = ''
+abc = ['a','b','c']
+for i in abc:
+    lol = string.zfill(i, 10)
+    print lol
+exit()
+
+
+try:
+    cur2.execute("DELETE from data_centr_ip")
+except Exception, e:
+    print e
+    cur2.connection.rollback()
+else:
+    cur2.connection.commit()
+
+try:
+    cur2.execute("SELECT setval('data_centr_ip_id_seq', 1, False);")
+except Exception, e:
+    print e
+    cur2.connection.rollback()
+else:
+    cur2.connection.commit()
+for i in range(10,255):
+    try:
+        name = ''
+        name = '176.124.137.' + str(i)
+        cur2.execute("INSERT INTO data_centr_ip(name, status_ip_id, price_id_id) VALUES(%s, %s, %s);", (name, 1, 3))
+    except Exception, e:
+        print e
+        cur2.connection.rollback()
+    else:
+        cur2.connection.commit()
+print "Operation is successfully complete"

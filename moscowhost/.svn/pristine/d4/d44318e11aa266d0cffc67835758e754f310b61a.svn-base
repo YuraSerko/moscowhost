@@ -1,0 +1,256 @@
+# coding: utf8
+from django.http import Http404, HttpResponse
+from lib.decorators import render_to, login_required
+from payment.robokassa.forms import robokassa_money, RKPaymentRequestFormCard
+from payment.robokassa.models import Invoice_rk
+from page.views import panel_base_auth
+from django.conf import settings
+from payment import settings as payment_settings
+from django.template import Template, Context
+from lib.mail import send_email
+from payment.models import Billservice_transaction
+
+import hashlib
+import log
+
+@login_required
+@render_to("rk_payment.html")
+def robokassa_pay(request):
+    context = dict()
+    profile = request.user.get_profile()
+    if profile.is_juridical:
+        # raise Http404
+        context['no_payment'] = True
+    context['placement'] = 1
+    form = robokassa_money()
+    if request.POST:
+        form = robokassa_money(request.POST)
+        if form.is_valid():
+            try:
+
+                in_rk = Invoice_rk()
+                in_rk.account = profile.billing_account
+                in_rk.type = 1
+                in_rk.operator = form.cleaned_data['operator']
+                in_rk.amount = int(form.cleaned_data['money'])
+                in_rk.desc = "Пополнение счета через Robokassa"
+                in_rk.save()
+
+                context["mrh_login"] = "Globalhome"  # Идентификатор магазина
+                context["mrh_pass1"] = "ndjhtw1ldjhwf"  # Пароль 1
+                context["inv_id"] = in_rk.pk  # Номер заказа
+                context["inv_desc"] = "Пополнение счета"  # Описание
+                context["out_summ"] = form.cleaned_data['money']  # Количество денег
+                context["in_curr"] = form.cleaned_data['operator']  # Код валюты, рубель по умолчанию
+                context["culture"] = "ru"
+                context["Shp_accountid"] = profile.billing_account.id
+                context["Shp_operationtype"] = 1
+                m = hashlib.md5()
+                m.update(context["mrh_login"] + ":" + str(context["out_summ"]) + ":" + str(context["inv_id"]) + \
+                                 ":" + context["mrh_pass1"] + ":Shp_accountid=" + str(context["Shp_accountid"]) \
+                                 + ":Shp_operationtype=" + str(context["Shp_operationtype"]))
+                context["crc"] = m.hexdigest()
+
+                return context
+            except Exception, e:
+                log.add(u"payment_robokassa_start Except: %s" % e)
+                raise Http404
+        else:
+            context['form'] = form
+            request.notifications.add(u"Ошибка в заполнении полей", "error")
+            return context
+    else:
+        context['form'] = form
+    return context
+
+
+@render_to("rk_card.html")
+def payment_rk_card_start(request):
+    context = dict()
+    context['hide_review'] = True
+    context['placement'] = 1
+    if request.method == 'GET':
+#
+        context['meta_title'] = u'Покупка карты Robokassa %s' % request.GET.get('amount')
+        form = RKPaymentRequestFormCard()
+        context['rk_form'] = form
+        # return render_to_response('wm_card.html', context)
+        return panel_base_auth(request, context)
+
+    if request.method == 'POST':
+        form = RKPaymentRequestFormCard(request.POST.copy())
+        context['rk_form'] = form
+        if not form.is_valid():
+            request.notifications.add(u"Ошибка в заполнении полей", "error")
+            # return render_to_response('wm_card.html', context)
+            return panel_base_auth(request, context)
+        email = form.cleaned_data.get('email', '')
+        phone_sms = form.cleaned_data.get('phone_sms', '')
+        amount = form.cleaned_data.get('amount')
+        if not email and not phone_sms:
+            request.notifications.add(u"Вам необходимо указать адрес электронной почты или номер мобильного телефона", "error")
+            # return render_to_response('wm_card.html', context)
+            return panel_base_auth(request, context)
+
+        context = dict()
+        context['hide_review'] = True
+        #context['site'] = settings.CURRENT_SITE
+        try:
+            in_rk = Invoice_rk()
+            in_rk.amount = amount
+            in_rk.operator = form.cleaned_data['operator']
+            in_rk.desc = "Покупка карты предоплаты"
+            in_rk.type = 2
+            in_rk.payer_phone_number = phone_sms
+            in_rk.payer_email = email
+            in_rk.save()
+
+            context["mrh_login"] = "Globalhome"  # Идентификатор магазина
+            context["mrh_pass1"] = "ndjhtw1ldjhwf"  # Пароль 1
+            context["inv_id"] = in_rk.pk  # Номер заказа
+            context["inv_desc"] = "Пополнение счета"  # Оamountие
+            context["out_summ"] = form.cleaned_data['amount']  # Количество денег
+            context["in_curr"] = form.cleaned_data['operator']  # Код валюты, рубель по умолчанию
+            context["culture"] = "ru"
+            context["Shp_operationtype"] = 2
+            context["Shp_phonesms"] = form.cleaned_data['phone_sms']
+            context["Shp_email"] = form.cleaned_data['email']
+
+            m = hashlib.md5()
+            m.update(context["mrh_login"] + ":" + str(context["out_summ"]) + ":" + str(context["inv_id"]) + \
+                                 ":" + context["mrh_pass1"] \
+                                 + ":Shp_operationtype=" + str(context["Shp_operationtype"]))
+
+            context["crc"] = m.hexdigest()
+
+
+            return panel_base_auth(request, context)
+        except Exception, e:
+            log.add(u"payment_rk_start Except: %s" % e)
+            return {}
+    else:
+        raise Http404
+
+
+def robokassa_result(request):
+    if request.POST:
+        log.add(u"robokassa_result POST: %s" % str(request.POST))
+        out_summ = request.POST.get("OutSum")
+        inv_id = request.POST.get("InvId")
+        crc = request.POST.get("SignatureValue")
+        shp_accountid = request.POST.get("Shp_accountid")
+        opertype = request.POST.get("Shp_operationtype")
+
+        if out_summ and inv_id and crc and opertype:
+            try:
+                pass2 = "ndjhtw1qaz"
+                inv_id_int = int(inv_id)
+                int_opertype = int(opertype)
+                in_rk = Invoice_rk.objects.get(pk=inv_id_int, type=int_opertype, end=False)
+                if int_opertype == 1:
+                    str_to_md = out_summ + ":" + inv_id + ":" + pass2 + ":Shp_accountid=" + shp_accountid + \
+                                ":Shp_operationtype=" + opertype
+                else:
+                    str_to_md = out_summ + ":" + inv_id + ":" + pass2 + \
+                                ":Shp_operationtype=" + opertype
+                m = hashlib.md5()
+                m.update(str_to_md)
+                if m.hexdigest().upper() == crc and in_rk.id:
+                    if int_opertype == 1:
+
+                        trn = Billservice_transaction()
+                        trn.bill = in_rk.desc
+                        trn.account = in_rk.account
+                        trn.type_id = 'ROBOKASSA_PAYMENT'
+                        trn.approved = True
+                        trn.tarif_id = 0
+                        trn.summ = in_rk.amount
+                        trn.description = in_rk.desc
+                        trn.save()
+
+                        in_rk.transaction_id = trn.id
+                        in_rk.end = True
+                        in_rk.save()
+
+                        response = HttpResponse("OK" + inv_id, content_type="text/plain")
+                        log.add(u"payment_robokassa_end success inv_id: " + inv_id)
+                    else:
+                        #------------------------------------------
+                        try:
+                            if not payment_settings.TEST_RK:
+                                """Получаем логин и пароль для карты доступа на указанную сумму"""
+                                # login, password = get_card2(float(inv.amount), WM_DEALER_ID)
+                                from cards.models import BillserviceCard
+                                card = BillserviceCard.generate_card(float(in_rk.amount), '1')
+                                login, password = card.login, card.pin
+                                log.add(u"payment_wm login=%s password=%s" % (login, password))
+                            else:
+                                login = password = '111'
+
+                        except Exception, e:
+                            log.add(u"Ошибка получения логина, пароля для карты: %s:" % e)
+
+                        if not payment_settings.TEST_RK:
+                            if in_rk.payer_phone_number:
+                                try:
+                                    num = in_rk.payer_phone_number
+                                    from lib.sms import send_sms
+                                    r = send_sms(num, payment_settings.SMS_TXT % (login, password), log=log)
+                                    if not r:
+                                        log.add(u'Ошибка отправки логина и пароля карты на указанный номер')
+                                except Exception, e:
+                                    log.add(u'Ошибка отправки логина и пароля карты на указанный номер %s' % e)
+                        if in_rk.payer_email:
+                            mail_context = {'summ' : in_rk.amount,
+                                            'password': password,
+                                            'login': login}
+                            subject = Template(payment_settings.MAIL_SUBJECT).render(Context(mail_context))
+                            text = Template(payment_settings.MAIL_TEXT).render(Context(mail_context))
+                            send_email(subject, text, settings.DEFAULT_FROM_EMAIL, [in_rk.payer_email])
+                            log.add(u'card_rk Email succesfully send')
+                        in_rk.end = True
+                        in_rk.save()
+                        #------------------------------------------
+                        response = HttpResponse("OK" + inv_id, content_type="text/plain")
+                        log.add(u"card_robokassa_end success inv_id: " + inv_id)
+
+                else:
+                    log.add(u"payment_robokassa_end uncorrect md5 summ")
+                    response = HttpResponse("FAIL", content_type="text/plain")
+            except ValueError as e:
+                log.add(u"payment_robokassa_end returns ValueError trying int() convertation. Except: %s" % e.message)
+                response = HttpResponse("FAIL", content_type="text/plain")
+            except Invoice_rk.DoesNotExist as e:
+                log.add(u"payment_robokassa_end returns DoesNotExist, this payment or accaunt doesn't exist. Except: %s" % e.message)
+                response = HttpResponse("FAIL", content_type="text/plain")
+            except Exception as e:
+                log.add(u"payment_robokassa_end unknown error. Except: %s" % e.message)
+                response = HttpResponse("FAIL", content_type="text/plain")
+        else:
+            response = HttpResponse("FAIL", content_type="text/plain")
+        return response
+    else:
+        raise Http404
+
+
+@render_to("rk_success.html")
+def robokassa_success(request):
+    if request.POST:
+        context = dict()
+        context['hide_review'] = True
+        context['title'] = u'Уведомление об успешном пополнении счета'
+        request.notifications.add(u'Оплата успешно произведена, спасибо!', 'success')
+        return context
+    else:
+        raise Http404
+
+
+@render_to("rk_success.html")
+def robokassa_fail(request):
+    if request.POST:
+        context = dict()
+        context['title'] = u'Уведомление о неудачном пополнении счета'
+        request.notifications.add(u'Оплата не была произведена.', 'error')
+        return context
+    else:
+        raise Http404

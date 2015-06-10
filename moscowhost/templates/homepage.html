@@ -1,0 +1,405 @@
+{% extends 'base_public.html' %}
+{% block extrahead %}
+
+   	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+    <!--link rel="stylesheet" href="{{ MEDIA_URL }}css/style_public_moscowdata.css">
+	<link rel="shortcut icon" href="{{ MEDIA_URL }}moscowdata/favicon.ico">
+	<link rel="stylesheet" href="{{ MEDIA_URL }}css/style_moscowdata.css">
+	<link rel="stylesheet" href="{{ MEDIA_URL }}css/modal_moscowdata.css">
+	
+	<script src="{{ MEDIA_URL }}js/jquery_public.js"></script>
+	<script src="{{ MEDIA_URL }}js/jquery.js"></script>
+	<script src="{{ MEDIA_URL }}js/html5_moscowdata.js"></script>
+	<script src="{{ MEDIA_URL }}js/script_moscowdata_forgot.js"></script-->
+    <!--
+	<style>
+	.cols {
+	min-height: 390px;
+	}
+	.page-inner2{
+		background: none;
+	}
+	</style>-->
+	
+{% endblock %}
+                                    
+
+
+{% block content_homepage %}
+<style type="text/css">
+	.btn_choose {/*кнопка выбрать*/
+		/*border-radius: 5px;
+		border: 1px solid #ee8800;
+		background: #fff;
+		height: 36px;
+		width: 170px;
+		margin: auto;
+		margin-top: 25px;
+		text-align: center;
+		line-height: 36px;
+		color: #ee8800;
+		cursor: pointer;
+		font-size: 16px;*/
+		margin-left: 27px;
+		text-align: center;
+		margin-top: 25px;
+		background: url(../../media/pictures/btn.png) no-repeat;
+		height:36px;
+		transition: all 0.1s linear;
+	}
+
+	.btn_choose:hover {
+		background: url(../../media/pictures/btn_hover.png) no-repeat;
+	}
+
+	.item {/*контейнер для элемента*/
+		height: 304px;
+		width: 240px;
+		position: relative;
+		float: left;
+		margin-left: 35px;
+	}
+
+	.bord {/*элемент*/
+		height: 290px;
+		width: 226px;
+		border-radius: 5px;
+		border: 1px solid gray;
+		margin: 6px;
+		position: absolute;
+		top: 0;
+		text-align: center;
+		box-shadow: 2px 2px 4px 0 rgba(0,0,0,0.15);
+	}
+
+	.item:hover>.bord {
+		border: 1px solid #ee8800;
+	}
+
+	input[type="checkbox"] {
+		display: none;
+	}
+
+	.search {/*поиск контейнер*/
+		float: right;
+	}
+	
+	.input {/*див для инпута*/
+		border-radius: 5px;
+		border: 2px solid orange;
+		position: absolute;
+		top: 6px;
+		right: 10px;
+	}
+
+	input[type="text"] {
+		border: 0;
+		padding: 2px; 
+		padding-right: 30px;
+	}
+
+	input[type="text"]:focus {
+		outline: none;
+	}
+	
+	.search_btn {/*имаж поиска*/
+		position: absolute;
+		right: 0;
+		top: 0;
+		cursor: pointer;
+	}
+
+	.items {/*див для элементов*/
+		display: block;
+	}
+
+	#check_tb1:checked ~#items1,
+	#check_tb2:checked ~#items2 {
+		display: none;
+	}
+
+	#check_tb1+label>div>div+img, #check_tb2+label>div>div+img  {/*трансформация стрелки неправильно нарисована*/
+		transform: rotate(180deg);
+	}
+
+	#check_tb1:checked+label>div>div+img,
+	#check_tb2:checked+label>div>div+img {/*трансформация*/
+		transform: rotate(360deg);
+	}
+
+	input[type="checkbox"]:checked+.lbl>div {/*кнопка выбора*/
+		margin-left: 75px;
+		background: url(../../media/pictures/btn_checked.png) no-repeat;
+	}
+</style>
+
+
+
+
+
+
+
+<div style="margin: 15px; position: relative;">
+	<div>
+		<div style="float: left; text-align: center; width: 800px;"><span style="font-size: 30px; color: #414141">Выберите ПО</span></div>
+		<div class="search">
+			<div class="input">
+				<input type="text" placeholder="ПОИСК" id="input_search" value = "{% if soft_letters %}{{ soft_letters }}{% endif %}"></input>
+			</div>
+			<div class="search_btn"><img src="../media/pictures/search_btn.png"></div>
+		</div>
+	</div>
+
+
+	<input type="checkbox" name="check_table" id="check_tb1" style="display: none">
+	<label for="check_tb1">
+		<div>
+	    	<span style="font-size: 25px;display: inline-block; margin: 20px 10px;"><b>ТОП ПО</b></span>
+	    	<div style="display: inline-block; height: 10px; margin-left: 10px;"><hr style="width: 650px; color: orange; opacity: 0.5"></div>
+	    	<img src="../../media/pictures/hide.png" style="margin-left: 15px;" id="img1" state="0">
+	    </div>
+	</label>
+
+
+	{% for key, value in  software_types_top_dict.items %}
+	
+	<div id="items1">
+		<div class="item">
+			<div class="bord">
+				<div style="background: darkgray; height: 119px; width: 119px; border-radius: 50%; margin: auto; margin-top: 20px;"></div>
+				<span style="font-size: 18px; display: block; margin-top: 20px;">{{ value.0 }}</span>
+				<!-- span style="font-size: 18px; display: block; margin-top: 20px;">Система 1С1</span-->
+				<span style="font-size: 30px; opacity: 0.35;display:block; margin-top: -15px;">................</span>
+				<span style="font-size: 15px; display: block;">Lorem ipsum Lorem</span>
+				<input type="checkbox" id="itemid{{ key }}" name="top">
+				<label for="itemid{{ key }}" class="lbl">
+					<div class="btn_choose"></div>
+				</label>
+			</div>
+			<img src="../../media/pictures/top.png" style="position: absolute; top: 0;">
+		</div>
+		<!-- div class="item">
+			<div class="bord">
+				<div style="background: darkgray; height: 119px; width: 119px; border-radius: 50%; margin: auto; margin-top: 20px;"></div>
+				<span style="font-size: 18px; display: block; margin-top: 20px;">Система 1С</span>
+				<span style="font-size: 30px; opacity: 0.35;display:block; margin-top: -15px;">................</span>
+				<span style="font-size: 15px; display: block;">Lorem ipsum Lorem</span>
+				<input type="checkbox" id="item2" name="top">
+				<label for="item2" class="lbl">
+					<div class="btn_choose"></div>
+				</label>
+			</div>
+			<img src="../../media/pictures/top.png" style="position: absolute; top: 0;">
+		</div-->
+		<!-- div class="item">
+			<div class="bord">
+				<div style="background: darkgray; height: 119px; width: 119px; border-radius: 50%; margin: auto; margin-top: 20px;"></div>
+				<span style="font-size: 18px; display: block; margin-top: 20px;">Система 1С</span>
+				<span style="font-size: 30px; opacity: 0.35;display:block; margin-top: -15px;">................</span>
+				<span style="font-size: 15px; display: block;">Lorem ipsum Lorem</span>
+				<input type="checkbox" id="item3" name="top">
+				<label for="item3" class="lbl">
+					<div class="btn_choose"></div>
+				</label>
+			</div>
+			<img src="../../media/pictures/top.png" style="position: absolute; top: 0;">
+		</div-->
+	</div>
+	{% if  forloop.last %}
+	
+	{% endif %}
+	{% endfor %}
+	
+	
+
+	
+		
+	
+	{% if soft_letters %}
+		<input type="checkbox" name="check_table" id="check_tb2" style="display: none">
+	{% else %}
+		<input type="checkbox" name="check_table" checked="checked" id="check_tb2" style="display: none">
+	{% endif %}
+	<label for="check_tb2" style = "float:left;">
+		<div>
+	    	<span style="font-size: 25px;display: inline-block; margin: 20px 10px;"><b>Всё программное обеспечение</b></span>
+	    	<div style="display: inline-block; height: 10px; margin-left: 10px;"><hr style="width: 360px; color: orange; opacity: 0.5"></div>
+	    	<img src="../../media/pictures/hide.png" style="margin-left: 15px;" id="img1" state="0">
+	    </div>
+	</label>
+	
+	{% for key, value in  software_types_dict.items  %}
+	
+	
+	<div id="items2">
+		<div class="item">
+			<div class="bord">
+				<div style="background: darkgray; height: 119px; width: 119px; border-radius: 50%; margin: auto; margin-top: 20px;"></div>
+				<span style="font-size: 18px; display: block; margin-top: 20px;">{{ value.0 }}</span>
+				<span style="font-size: 30px; opacity: 0.25;display:block; margin-top: -15px;">................</span>
+				<span style="font-size: 15px; display: block;">Lorem ipsum Lorem</span>
+				<input type="checkbox" id="itemid{{ key }}" name="all">
+				<label for="itemid{{ key }}" class="lbl">
+					<div class="btn_choose"></div>
+				</label>
+			</div>
+		</div>
+		<!--div class="item">
+			<div class="bord">
+				<div style="background: darkgray; height: 119px; width: 119px; border-radius: 50%; margin: auto; margin-top: 20px;"></div>
+				<span style="font-size: 18px; display: block; margin-top: 20px;">Система 1С</span>
+				<span style="font-size: 30px; opacity: 0.35;display:block; margin-top: -15px;">................</span>
+				<span style="font-size: 15px; display: block;">Lorem ipsum Lorem</span>
+				<input type="checkbox" id="item5" name="all">
+				<label for="item5" class="lbl">
+					<div class="btn_choose"></div>
+				</label>
+			</div>
+		</div>
+		<div class="item">
+			<div class="bord">
+				<div style="background: darkgray; height: 119px; width: 119px; border-radius: 50%; margin: auto; margin-top: 20px;"></div>
+				<span style="font-size: 18px; display: block; margin-top: 20px;">Система 1С</span>
+				<span style="font-size: 30px; opacity: 0.35;display:block; margin-top: -15px;">................</span>
+				<span style="font-size: 15px; display: block;">Lorem ipsum Lorem</span>
+				<input type="checkbox" id="item6" name="all">
+				<label for="item6" class="lbl">
+					<div class="btn_choose"></div>
+				</label>
+			</div>
+		</div-->
+	</div>
+	
+	{% endfor %}
+</div>
+
+<!-- warning -->
+<a href="#" class="overlay" id="warning"></a>
+    <div  class="popup_personal" style="width:500px;">
+        <a class="popup_personal-close" href="#close"></a>
+        <div style = "width:100%; height:50px; text-align:center;">
+        	Выберите хотя бы 1 тип прграммного обеспечения!
+        </div>
+   </div> 
+
+
+
+<!--hidden form for search by name-->
+<form action = '' method = "POST" id = "search_form" style = 'display:none;'>
+	<input name="soft_letters" id = "soft_letters_form"> </input>
+</form>
+
+
+<!-- hidden form for software_types  -->
+<form action = 'service/virtual_server_1C/' method = "POST" id="soft_types_transfer" style = "display:none;">
+	<input name = 'soft_types' id = 'soft_types'> </input>
+</form>
+
+
+
+<div class="contain_footer">
+	<!-- label class="btn left" for="ac-2"><div>ДАЛЕЕ</div></label-->
+	<label class="btn left" id  = "ac-2"><div>ДАЛЕЕ</div></label>
+	<!--[if lte IE 8]> 
+	<label class="btn left" for="ac-2" onclick="next('1')"><div>ДАЛЕЕ</div></label><![endif]-->
+</div>
+		     
+
+
+<script>
+	$(document).ready(function(){
+		$( "#ac-1" ).prop( "checked", true );
+		$('.search_btn').bind('click', go_search);
+		//$("label[for='ac-2']").bind('click', check_types);
+		$('#ac-2').bind('click', check_types);
+		$("label[for='ac-2']").bind('click', check_types);
+		
+		
+		//alert('{{back_types}}');
+		back_types = '{{ back_types }}';
+		if (back_types != '')
+			{//alert('1234');
+			
+			/*
+			$('input[id^="itemid"]').each(function(){
+				//res_str =  $(this).attr('id').replace('itemid','');
+				//types_list.push(res_str);
+				alert(this);
+			})
+			*/
+			
+			//
+			back_types = back_types.substring(1,back_types.length);
+			back_types =  back_types.substring(0, back_types.length-1);
+			back_arr = back_types.split(',');
+			//alert(back_arr);
+			for (var i=0; i<back_arr.length; i++)
+				{
+					 //alert(back_arr[i]);
+					id = '#' +'itemid'+ back_arr[i].replace(' ', '');
+					//$("#myCheckbox").attr("checked","checked");
+					//alert(id);
+					$(id).attr('checked', 'checked');
+				}
+				
+				
+			
+			}
+		
+		
+	})
+	
+	function go_search(){
+		//alert('in search function');
+		$('#soft_letters_form').val($('#input_search').val());
+		$('#search_form').submit();
+	}
+	
+	function check_types(){
+		//alert('in check types');
+		//проверить все элементы у кот id начинается с itemid
+		/*$( "li" ).each(function() {
+			  $( this ).addClass( "foo" );
+			});
+		$("div[title^='my']");  //
+		*/
+	 	types_list = []
+		$('input[id^="itemid"]:checked').each(function(){
+			res_str =  $(this).attr('id').replace('itemid','');
+			types_list.push(res_str);
+		})
+		
+
+		if (types_list==0) {
+
+			
+			//$('#ac-2').unbind('click', check_types);
+			//$("label[for='ac-2']").unbind('click', check_types);
+			window.location = '#warning';
+			
+			
+			
+		}
+		else{
+
+				$('#soft_types').val(types_list);
+				$('#soft_types_transfer').submit();
+		}
+		
+	}
+	
+	
+	//alert('11');
+	//location.href = '/';
+	//$('#ac-1')
+	/*
+	alert('ac-1')
+	$( "#ac-1" ).prop( "checked", true );
+	$("#ac-2").prop( "checked", false );
+	$( "#ac-3" ).prop( "checked", false );
+	*/
+</script>
+
+	
+{% endblock %}

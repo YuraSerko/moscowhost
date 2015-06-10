@@ -1,0 +1,23 @@
+# coding: utf8
+from django.contrib import admin
+from payment.filters import DateFieldListFilter
+from models import Invoice_rk
+from payment.admin import get_actions
+
+
+class Invoice_rk_Admin(admin.ModelAdmin):
+    list_display = ['id', 'amount', 'desc', 'account', 'created', 'end']  # отображаем колонками
+    list_display_links = ('id',)  # какие поля доступны для изменения
+    list_filter = ('end', ('created', DateFieldListFilter),)
+    search_fields = ['id', 'amount', 'desc', 'account', 'created', 'end']
+    ordering = ('created',)
+    readonly_fields = ['id', 'amount', 'desc', 'account', 'created', 'end']
+
+
+    def get_actions(self, request):
+        return get_actions(self, request)
+
+    def has_add_permission(self, request):
+        return False
+
+admin.site.register(Invoice_rk, Invoice_rk_Admin)

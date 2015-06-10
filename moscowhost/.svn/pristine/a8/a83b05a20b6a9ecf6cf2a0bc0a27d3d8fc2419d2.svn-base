@@ -1,0 +1,57 @@
+<?php
+
+    header('Content-Type: text/plain; charset=utf-8');
+
+    $options = Array(
+        // YMapsML-файл
+        'XML' => 'scripts/php_script/myLayer.xml',
+        // Минимальный коэффициент масштабирования,
+        // начиная с которого требуется подготовить тайлы
+        'minZoom' => 7,
+        // Максимальный коэффициент масштабирования,
+        // до которого требуется подготовить тайлы
+        'maxZoom' => 18,
+        // Папка для размещения тайлов, примера
+        // и файла со стилями
+        'directory' => 'media/orgs/602/',
+        // права доступа, которые будут выставлены
+        // всем создаваемым папкам
+        'permissions' => 0774,
+        // Шаблон имени тайла с изображениями
+        'imageTemplate' => '!pngorg/%z/tile-%x-%y.png',
+        // Шаблон имени тайла с описанием данных
+        'jsTemplate' => '!jsonorg/%z/tile-%x-%y',
+        // Шаблон ключа запроса
+    	//testCallback_tile_x_309_y_160_z_9
+        //'keyTemplate' => 'testCallback_tile_x_%x_y_%y_z_%z', //рабочий для одной активной области
+    	'keyTemplate' => 'testCallback_tile_x_%x_y_%y_z_%z ({"data": { "type": "FeatureCollection","features": [',
+        // Префикс имени стиля
+        'styleKey' => '3333',
+        // Имя файла со стилями
+        'stylesFile' => 'styles.js',
+        // Процессор изображений
+        'imageProcessor' => array (
+            // Класс процессора изображений
+            'name' => 'GDImageProcessor',
+            // Имя подключаемого файла
+            'file' => 'imageProcessors/GDImageProcessor.class.php'
+        ),
+        // Имя файла с примером кода
+        'htmlExample' => 'index.html',
+        // API-ключ, используется только в примере кода
+        'apiKey' => 'AEy0r0kBAAAAVbCAHwMAqvKQgnnbjUmBw5U28rM0LiiM8FUAAAAAAAAAAAB6j_kSspbKsUy6jvwHJcRpSIQGzQ=='
+    );
+
+    // Подключаем основной файл проекта
+    include ('include/Application.class.php');
+
+    // Запускаем
+    try {
+        Application::get()->run($options);
+    } catch (Exception $e) {
+        die($e->getMessage());
+    }
+
+    // Если ошибок не было, делаем редирект на страницу с примером
+    header('location: ' . $options['directory'] . '/' . $options['htmlExample']);
+?>

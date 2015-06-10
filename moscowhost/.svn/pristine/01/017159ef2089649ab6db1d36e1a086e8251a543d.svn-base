@@ -1,0 +1,1100 @@
+# -*-coding=utf-8-*-
+from lib.decorators import render_to, login_required
+from django.http import Http404, HttpResponse
+from django.utils.translation import ugettext as _
+from content.models import Article_moscowhost
+import base64
+import log
+from django.db import connections, transaction
+from models import Billservice_transaction, Invoice_comepay, Invoice_cyberplat
+from billing.models import BillserviceAccount
+#from telnumbers.models import TelNumber
+from django.shortcuts import render_to_response
+import datetime, time, decimal
+import re
+import hashlib
+from django.contrib.contenttypes.models import ContentType
+from page.views import panel_base_auth
+from django.conf import settings
+
+def md5h(v):
+    key = hashlib.md5()
+    key.update(v)
+    return key.hexdigest()
+
+INTERNAL_NUMBER_PATTERN = r"^[1-9]{1}[0-9]{6}$"
+EXTERNAL_NUMBER_PATTERN = r"^79[0-9]{9}$"
+PERSONAL_ACCOUNT_ID = r"^[0-9]{10}$"
+PRICE_PATTERN = r"^[0-9]{0,10}[.]{0,1}[0-9]{0,2}$"
+WM_DEALER_ID = 4
+TEST_WM = True
+TEST_COMEPAY = False
+TEST_CYBERPLAT = False
+SMS_TXT = """Podrobnosti: http://globalhome.su/content/article/hot_spot/
+Login: %s
+Pin: %s"""
+
+
+# def panel_base_auth2(request, context):
+#    context = {}
+#    return context
+
+from django.shortcuts import get_object_or_404
+from django.shortcuts import render
+from page.views import panel_base_auth
+
+
+'''
+@login_required
+@render_to("article_bank_comepay_mobi_payment.html")
+
+def article_cabinet_by_slug(request, slug):
+    obj = get_object_or_404(Article, slug=slug, is_published=True)
+    context = {}
+    context['obj'] = obj
+    context['payment_list'] = True
+    return context
+'''
+
+
+@login_required
+@render_to("payment_list.html")
+def payment_list(request):
+    "Отображает статью с текстом способов оплаты"
+#    if request.user.get_profile().is_card:
+#        raise Http404
+    context = {}
+    if request.user.get_profile().is_juridical:
+        article = Article_moscowhost.objects.get(slug="payment_bank")
+    else:
+        article = Article_moscowhost.objects.get(slug="payment_methods_cabinet")
+    article.processVars(["text"], request=request)
+    context["article"] = article
+    context["current_view_name"] = "account_show_tariffs"
+    #context['site'] = settings.CURRENT_SITE
+    context['payment_list'] = True
+    return context
+
+
+def get_card(sum, dealer_id, tarif_id=8):
+    # from settings import BILLING_DB
+    """Возвращает логин, пароль и аккаунт от карточки нужного номинала"""
+    cur = connections[settings.BILLING_DB].cursor()
+    cur.execute("SELECT id,pin,login FROM billservice_card WHERE start_date<=CURRENT_DATE and end_date>CURRENT_DATE and type=3 and sold is Null and activated is NULL and tarif_id=%s and disabled=False LIMIT 1 FOR UPDATE;", (tarif_id,))
+    try:
+        id, pin, login = cur.fetchone()
+        # transaction.commit_unless_managed(using=settings.BILLING_DB)
+    except Exception, e:
+        log.add("SELECT id,pin,login FROM billservice_card WHERE start_date<=CURRENT_DATE and end_date>CURRENT_DATE and type=3 and sold is Null and activated is NULL and tarif_id=%s and disabled=False LIMIT 1 FOR UPDATE;" % (tarif_id,))
+        log.add("10payment_comepay_process GET: '%s'" % (e))
+        return '', ''
+    if id and pin and login:
+        if not TEST_COMEPAY:
+            cur.execute("UPDATE billservice_card SET nominal=%s, sold=now() WHERE id=%s", (sum, id,))
+            cur.execute("Insert into billservice_salecard (prepayment,discount_sum,discount,paydeffer,dealer_id,sum_for_pay,created) Values (0, 0, 0, 0, %s, %s, now()) returning id", (dealer_id, sum,))
+            salecard = cur.fetchone()
+            cur.execute("Insert into billservice_salecard_cards (salecard_id,card_id) Values (%s, %s)", (salecard[0], id,))
+            # transaction.commit_unless_managed(using=settings.BILLING_DB)
+            return login, pin
+        else:
+            return '111', '111'
+    else:
+        return '', ''
+
+def payment_comepay_process(request):
+    """Страница, на которую прийдет запрос о совершении платежа от comepay
+       а также запросы на ежедневную сверку."""
+    # return {'data': _(u'The payment was not made​​.')}
+
+    """Проверяем наличие GET данных"""
+    if not request.GET:
+        log.add("11payment_comepay_process GET: None")
+        raise Http404
+
+    log.add("12payment_comepay_process GET: '%s'" % (repr(request.GET)))
+
+    from lxml import etree
+
+    """получаем данные из запроса"""
+    attrib = {}
+    account_number = request.GET.get("account")
+    operation = request.GET.get("operation")
+    sum = request.GET.get("sum")
+    service_id = request.GET.get("service")
+    id_payment = request.GET.get("id_payment")
+    date = request.GET.get("date")
+    id_report = request.GET.get("id_report")
+    ext_id_payment = ''
+    save = True
+    result = '0'
+    ext_result = ''
+    ext_description = ''
+    xml_payments = None
+    xml_ext_payments = None
+    version = ''
+    start_date = ''
+    end_date = ''
+    if not operation:
+        attrib = {'fatal': "true"}
+        result = '508'
+        save = False
+
+    if save:
+        if operation == 'upload_payments':
+            if not request.POST or not id_report:
+                attrib = {'fatal': "true"}
+                result = '508'
+                save = False
+            else:
+                xml = u'<?xml version=' + request.POST.get(u'<?xml version')
+                log.add("44 payment_comepay_process POST: '%s'" % (xml,))
+                try:
+                    tree = etree.XML(xml.encode('utf-8'))  # Парсинг строки
+                    version = str(tree.xpath('/payments/version/text()')[0])
+                    id_report = int(tree.xpath('/payments/id_report/text()')[0])
+                    start_date = tree.xpath('/payments/start_date/text()')[0]
+                    if start_date:
+                        start_date_t = datetime.datetime(*time.strptime(start_date, "%Y%m%d%H%M%S")[0:6])
+                    else:
+                        start_date_t = None
+                    end_date = tree.xpath('/payments/end_date/text()')[0]
+                    if end_date:
+                        end_date_t = datetime.datetime(*time.strptime(end_date, "%Y%m%d%H%M%S")[0:6])
+                    else:
+                        end_date_t = None
+
+                    version = version if version else ''
+                    id_report = id_report if id_report else None
+
+
+                    payments = []
+                    nodes = tree.xpath('/payments/payment')  # Открываем раздел
+                    for node in nodes:  # Перебираем элементы
+                        payment = {}
+                        for p in node:
+                            print p.tag, p.text
+                            payment[p.tag] = p.text
+                        payments.append(payment)
+
+                except Exception, e:
+                    log.add("13payment_comepay_process except %s" % e)
+                    attrib = {'fatal': "true"}
+                    result = '502'
+                    save = False
+                if id_report <= 0:
+                    log.add("13-1 Bad data id_report=%s" % id_report)
+                    attrib = {'fatal': "true"}
+                    result = '501'
+                    save = False
+                if save:
+                    """Вставляем записи в БД"""
+                    cur = connections[settings.BILLING_DB].cursor()
+                    cur.execute("DELETE FROM payments_comepay_reports WHERE id_report=%s" % id_report)
+                    cur.execute("DELETE FROM payments_comepay_reports_payment WHERE id_report=%s" % id_report)
+                    # transaction.commit_unless_managed(using=settings.BILLING_DB)
+                    try:
+                        cur.execute("INSERT INTO payments_comepay_reports (id_report, start_date, end_date, version) VALUES (%s, %s, %s, %s) RETURNING id", (id_report, start_date_t, end_date_t, version))
+                        id = cur.fetchone()[0]
+                        # transaction.commit_unless_managed(using=settings.BILLING_DB)
+                    except Exception, e:
+                        log.add("14 payment_comepay_process GET: '%s'" % e)
+                        log.add("14-1 " + "INSERT INTO payments_comepay_reports (id_report, start_date, end_date, version) VALUES (%s, %s, %s, %s) RETURNING id" % (id_report, start_date_t, end_date_t, version))
+                        save = False
+                        attrib = {'fatal': "true"}
+                        result = '801'
+                        ext_result = '1'
+                        ext_description = str(e)
+                        transaction.rollback_unless_managed(settings.BILLING_DB)
+                    if save:
+                        try:
+                            for p in payments:
+                                id_payment_t = p['id_payment']  # if p['id_payment'] else None
+                                if p['date']:
+                                    date_t = datetime.datetime(*time.strptime(p['date'], "%Y%m%d%H%M%S")[0:6])
+                                else:
+                                    date_t = None
+                                pay_account_t = p['account']  # if p['account'] else 'NULL'
+                                sum_t = p['sum']  # if p['sum'] else 'NULL'
+                                service_t = p['service']  # if p['service'] else 'NULL'
+                                cur.execute("INSERT INTO payments_comepay_reports_payment (id_payment, date, pay_account, sum, service_id, test, id_report) VALUES (%s, %s, %s, %s, %s, %s, %s)", (id_payment_t, date_t, pay_account_t, sum_t, service_t, TEST_COMEPAY, id_report))
+                            transaction.commit_unless_managed(settings.BILLING_DB)
+                        except Exception, e:
+                            log.add("14-2 payment_comepay_process GET: '%s'" % e)
+                            log.add("14-3 id_report=%s type: %s" % (id_report, type(id_report)))
+                            log.add("INSERT INTO payments_comepay_reports_payment (id_payment, date, pay_account, sum, service_id, test, id_report) VALUES (%s, %s, %s, %s, %s, %s, %s)" % (p['id_payment'], datetime.datetime(*time.strptime(p['date'], "%Y%m%d%H%M%S")[0:6]), p['account'], p['sum'], p['service'], TEST_COMEPAY, id_report))
+                            attrib = {'fatal': "true"}
+                            result = '801'
+                            ext_result = '1'
+                            ext_description = str(e)
+                            transaction.rollback_unless_managed(settings.BILLING_DB)
+        elif operation == 'get_check_result':
+            if not id_report:
+                attrib = {'fatal': "true"}
+                result = '508'
+                save = False
+            else:
+                try:
+                    if int(id_report) <= 0:
+                        log.add("13-1 Bad data id_report=%s" % id_report)
+                        attrib = {'fatal': "true"}
+                        result = '501'
+                        save = False
+                except Exception, e:
+                    log.add("15 payment_comepay_process GET: '%s'" % e)
+                    attrib = {'fatal': "true"}
+                    result = '501'
+                    save = False
+                if save:
+                    # from settings import BILLING_DB
+                    cur = connections[settings.BILLING_DB].cursor()
+                    cur.execute("SELECT id, start_date, end_date, version FROM payments_comepay_reports WHERE id_report=%s", (id_report,))
+                    try:
+                        id, start_date, end_date, version = cur.fetchone()
+                    except Exception, e:
+                        log.add("15 payment_comepay_process GET: '%s'" % e)
+                        attrib = {'fatal': "true"}
+                        result = '803'
+                        ext_result = '2'
+                        ext_description = 'No data with id_report=%s' % id_report
+                        save = False
+
+                    if save:
+                        cur.execute("SELECT count(a.id) FROM (SELECT id, id_payment, date, pay_account, sum, service_id FROM payments_comepay WHERE date>=%s AND date<%s)as a INNER JOIN (SELECT id, id_payment, date, pay_account, sum, service_id FROM  payments_comepay_reports_payment WHERE id_report=%s) as b USING(id_payment, date, pay_account, sum, service_id)", (start_date, end_date, id_report))
+                        count = cur.fetchone()[0]
+                        cur.execute("SELECT count(id) FROM payments_comepay WHERE date>=%s AND date<%s", (start_date, end_date))
+                        a = cur.fetchone()[0]
+                        if a != count:
+                            attrib = {'fatal': "true"}
+                            result = '804'
+                            ext_result = '3'
+                            log.add("count=%s count2=%s" % (count, a))
+                            ext_description = 'found discrepancies'
+                            save = False
+                        else:
+                            cur.execute("SELECT count(id) FROM payments_comepay_reports_payment WHERE id_report=%s", (id_report,))
+                            a = cur.fetchone()[0]
+                            if a != count:
+                                attrib = {'fatal': "true"}
+                                result = '804'
+                                ext_result = '3'
+                                log.add("count3=%s count4=%s" % (count, a))
+                                ext_description = 'found discrepancies'
+                                save = False
+                            else:
+                                result = '0'
+                    # transaction.commit_unless_managed(using=settings.BILLING_DB)
+        elif operation == 'get_divergence':
+            if not id_report:
+                attrib = {'fatal': "true"}
+                result = '508'
+                save = False
+            else:
+                try:
+                    if int(id_report) <= 0:
+                        log.add("13-1 Bad data id_report=%s" % id_report)
+                        attrib = {'fatal': "true"}
+                        result = '501'
+                        save = False
+                except Exception, e:
+                    log.add("15 payment_comepay_process GET: '%s'" % e)
+                    attrib = {'fatal': "true"}
+                    result = '501'
+                    save = False
+                if save:
+                    # from settings import BILLING_DB
+                    cur = connections[settings.BILLING_DB].cursor()
+                    cur.execute("SELECT id, start_date, end_date, version FROM payments_comepay_reports WHERE id_report=%s", (id_report,))
+                    try:
+                        id, start_date, end_date, version = cur.fetchone()
+                    except Exception, e:
+                        log.add("16 payment_comepay_process GET: '%s'" % e)
+                        attrib = {'fatal': "true"}
+                        result = '805'
+                        ext_result = '2'
+                        ext_description = 'No data with id_report=%s' % id_report
+                        save = False
+
+                    if save:
+                        cur.execute("SELECT a.id, b.id, id_payment, date, pay_account, sum, service_id FROM (SELECT id, id_payment, date, pay_account, sum, service_id FROM payments_comepay WHERE date>=%s AND date<%s)as a FULL OUTER JOIN (SELECT id, id_payment, date, pay_account, sum, service_id FROM  payments_comepay_reports_payment WHERE id_report=%s)as b USING(id_payment, date, pay_account, sum, service_id) WHERE a.id IS NULL OR b.id IS NULL", (start_date, end_date, id_report))
+                        res = cur.fetchall()
+                        if not res:
+                            attrib = {'fatal': "true"}
+                            result = '805'
+                            ext_result = '4'
+                            ext_description = 'Differences were not found'
+                            save = False
+                        else:
+                            result = '0'
+                            for r in res:
+                                if r[0] == None:
+                                    payment = etree.Element("payment")
+                                    etree.SubElement(payment, "id_payment").text = str(r[2])
+                                    etree.SubElement(payment, "date").text = r[3].strftime("%Y%m%d%H%M%S")
+                                    etree.SubElement(payment, "account").text = r[4]
+                                    etree.SubElement(payment, "sum").text = str(r[5] if r[5] else '')
+                                    etree.SubElement(payment, "service").text = str(r[6])
+                                    # etree.SubElement(payments, "payment").text = payment
+                                    if not xml_payments:
+                                        xml_payments = etree.Element("payments")
+                                    xml_payments.append(payment)
+
+                            for r in res:
+                                if r[1] == None:
+                                    ext_payment = etree.Element("ext-payment")
+                                    etree.SubElement(ext_payment, "ext-id_payment").text = str(r[2])
+                                    etree.SubElement(ext_payment, "ext-date").text = r[3].strftime("%Y%m%d%H%M%S")
+                                    etree.SubElement(ext_payment, "ext-account").text = r[4]
+                                    etree.SubElement(ext_payment, "ext-sum").text = str(r[5])
+                                    etree.SubElement(ext_payment, "ext-service").text = str(r[6])
+                                    if not xml_ext_payments:
+                                        xml_ext_payments = etree.Element("ext-payments")
+                                    xml_ext_payments.append(ext_payment)
+
+                    # transaction.commit_unless_managed(using=settings.BILLING_DB)
+        else:
+            if not service_id:  # Неверный формат сообщения
+                attrib = {'fatal': "true"}
+                result = '508'
+                save = False
+            else:
+
+                if service_id == '1':  # пополнение счета
+
+                    pattern = INTERNAL_NUMBER_PATTERN
+                    pattern2 = PERSONAL_ACCOUNT_ID
+
+                    number_re = re.compile(pattern)
+                    if not number_re.match(account_number):
+                        number_re2 = re.compile(pattern2)
+                        if not number_re2.match(account_number):
+                            attrib = {'fatal': "true"}
+                            result = '500'
+                            save = False
+                            account = None
+                    if TEST_COMEPAY:
+                        if account_number not in ('1000004', '0000000030'):
+                            attrib = {'fatal': "true"}
+                            result = '513'
+                            save = False
+                            account = None
+                    if len(account_number) == 7:
+#                         try:
+#                             tel_number = TelNumber.objects.get(tel_number=account_number)
+#                             account = tel_number.account
+#                         except TelNumber.DoesNotExist:
+#                             attrib = {'fatal': "true"}
+#                             result = '504'
+#                             save = False
+#                             account = None
+                        pass
+                    else:
+                        try:
+                            account = BillserviceAccount.objects.get(id=int(account_number.lstrip('0')))
+                        except BillserviceAccount.DoesNotExist:
+                            attrib = {'fatal': "true"}
+                            result = '504'
+                            save = False
+                            account = None
+                        except Exception, e:
+                            attrib = {'fatal': "true"}
+                            result = '504'
+                            save = False
+                            account = None
+                    if (not account) or account.get_user().get_profile().is_juridical:
+                        attrib = {'fatal': "true"}
+                        result = '504'
+                        save = False
+                    # etree.SubElement(response, "account").text = str(account_id)
+                    if sum:
+                        try:
+                            sum_f = float(sum)
+                            if sum_f < 0:
+                                raise
+                        except:
+                            attrib = {'fatal': "true"}
+                            result = '501'
+                            save = False
+
+                    if operation == 'check':
+                        if not (operation and account_number):
+                            attrib = {'fatal': "true"}
+                            result = '508'
+                            save = False
+
+                    elif operation == 'payment':
+                        try:
+                            payment = Invoice_comepay.objects.get(id_payment=id_payment)
+                            double = True
+                        except Invoice_comepay.DoesNotExist:
+                            double = False
+                        if double:
+                            account_number = payment.pay_account
+                            sum = str(payment.sum)
+                            service_id = str(payment.service_id)
+                            id_payment = str(payment.id_payment)
+                            ext_id_payment = str(payment.id)
+                            date = payment.date.strftime("%Y%m%d%H%M%S")
+                            attrib = {'fatal': "true"}
+                            result = '516'
+                            save = False
+                        try:
+                            date_t = datetime.datetime(*time.strptime(date, "%Y%m%d%H%M%S")[0:6])
+                        except:
+                            attrib = {'fatal': "true"}
+                            result = '501'
+                            save = False
+
+                        if save:
+                            try:
+                                payment = Invoice_comepay()
+                                payment.id_payment = id_payment
+                                payment.date = date_t
+                                payment.pay_account = account_number
+                                payment.sum = sum
+                                payment.service_id = int(service_id)
+                                payment.account = account
+                                payment.test = TEST_COMEPAY
+                                payment.save()
+                                ext_id_payment = str(payment.id)
+                                log.add("\next_id_payment=%s" % ext_id_payment)
+                                trn = Billservice_transaction()
+                                trn.bill = 'Пополнение счета через Comepay'
+                                trn.account = account
+                                # trn.account = inv.account
+                                trn.type_id = 'COMEPAY_PAYMENT'
+                                trn.approved = True
+                                trn.tarif_id = 8
+                                trn.summ = sum
+                                trn.description = "Comepay payment"
+                                # trn.systemuser_id = 1
+                                # trn.accounttarif_id = 0
+                                trn.save()
+                            except Exception, e:
+                                log.add("17 payment_comepay_process except %s" % e)
+                                attrib = {'fatal': "true"}
+                                result = '502'
+                    else:
+                        attrib = {'fatal': "true"}
+                        result = '501'
+
+                elif service_id == '2':
+
+                    pattern = r"^79[0-9]{9}$"
+
+                    number_re = re.compile(pattern)
+                    if not number_re.match(account_number):
+                        attrib = {'fatal': "true"}
+                        result = '500'
+                        save = False
+                    if TEST_COMEPAY:
+                        if account_number != '79154957812':
+                            attrib = {'fatal': "true"}
+                            result = '513'
+                            save = False
+
+                    # etree.SubElement(response, "account").text = str(account_number)
+                    if sum:
+                        try:
+                            sum_f = float(sum)
+                            if sum_f < 10:
+                                attrib = {'fatal': "true"}
+                                result = '501'
+                                save = False
+                        except:
+                            attrib = {'fatal': "true"}
+                            result = '501'
+                            save = False
+
+                    if operation == 'check':
+                        if not (operation and account_number):
+                            attrib = {'fatal': "true"}
+                            result = '508'
+                            save = False
+
+                    elif operation == 'payment':
+                        if not (operation and account_number and id_payment and date and sum):
+                            attrib = {'fatal': "true"}
+                            result = '508'
+                            save = False
+                        else:
+                            try:
+                                date_t = datetime.datetime(*time.strptime(date, "%Y%m%d%H%M%S")[0:6])
+                                log.add("date_t= %s" % date_t)
+                            except Exception, e:
+                                log.add("18payment_comepay_process except %s" % e)
+                                attrib = {'fatal': "true"}
+                                result = '506'
+                                save = False
+
+                            try:
+                                log.add("19 payment_comepay_process get invoice by id")
+                                payment = Invoice_comepay.objects.get(id_payment=id_payment)
+                                double = True
+                                log.add("19.1 payment_comepay_process get invoice by id success")
+                            except Invoice_comepay.DoesNotExist:
+                                log.add("20payment_comepay_process create invoice")
+                                payment = Invoice_comepay()
+                                payment.id_payment = id_payment
+                                payment.date = date_t
+                                payment.pay_account = account_number
+                                payment.sum = sum
+                                payment.service_id = int(service_id)
+                                # payment.login = login
+                                payment.test = TEST_COMEPAY
+                                payment.save()
+                                ext_id_payment = str(payment.id)
+                                double = False
+                                log.add("21payment_comepay_process create invoice successful")
+
+                            if double:
+                                log.add("21.1 payment_comepay_process double")
+                                account_number = payment.pay_account
+                                sum = str(payment.sum)
+                                service_id = str(payment.service_id)
+                                id_payment = str(payment.id_payment)
+                                ext_id_payment = str(payment.id)
+                                date = payment.date.strftime("%Y%m%d%H%M%S")
+                                attrib = {'fatal': "true"}
+                                result = '516'
+                                save = False
+
+                            if save:
+                                card = None
+                                from cards.models import BillserviceCard
+                                if payment.login:
+                                    card = BillserviceCard.objects.get(login=payment.login.strip())
+                                else:
+                                    try:
+                                        """Получаем логин и пароль для карты доступа на указанную сумму"""
+                                        log.add("22payment_comepay_process create card")
+                                        card = BillserviceCard.generate_card(float(sum), '1')
+                                        payment.login = card.login
+                                        payment.save()
+                                        log.add("23payment_comepay_process create card successful")
+                                    except Exception, e:
+                                        login = password = ''
+                                        log.add("24 payment_comepay_process except %s" % e)
+                                        attrib = {'fatal': "true"}
+                                        result = '502'
+                                if card:
+                                    login, password = card.login, card.pin
+                                if login and password:
+                                    log.add("25payment_comepay_process send sms")
+                                    try:
+                                        if not TEST_COMEPAY:
+                                            from lib.sms import send_sms
+                                            r = send_sms(account_number, SMS_TXT % (login, password), log=log)
+                                            if r:
+                                                pass
+                                            else:
+                                                attrib = {'fatal': "true"}
+                                                result = '502'
+                                    except Exception, e:
+                                        log.add("21 payment_comepay_process except %s" % e)
+                                        attrib = {'fatal': "true"}
+                                        result = '502'
+                                    log.add("25payment_comepay_process send sms finish")
+                                else:
+                                    attrib = {'fatal': "true"}
+                                    result = '502'
+
+                    else:
+                        attrib = {'fatal': "true"}
+                        result = '501'
+
+                else:  # Неверный тип услуги
+                    attrib = {'fatal': "true"}
+                    result = '546'
+
+    log.add("98payment_comepay_process: attrib='%s' result='%s'" % (attrib, result))
+
+    """Создаем xml-ответ"""
+    response = etree.Element("response")
+
+    if operation:
+        etree.SubElement(response, "operation").text = str(operation)
+    if version:
+        etree.SubElement(response, "version").text = str(version)
+    if id_payment:
+        etree.SubElement(response, "id_payment").text = str(id_payment)
+    if ext_id_payment:
+        etree.SubElement(response, "ext-id_payment").text = ext_id_payment
+    if id_report:
+        etree.SubElement(response, "id_report").text = str(id_report)
+#    if start_date:
+#        etree.SubElement(response, "start_date").text = start_date
+#    if start_date:
+#        etree.SubElement(response, "end_date").text = end_date
+    if date:
+        etree.SubElement(response, "date").text = date
+    if service_id:
+        etree.SubElement(response, "service").text = service_id
+    if account_number:
+        etree.SubElement(response, "account").text = account_number
+    if sum:
+        etree.SubElement(response, "sum").text = str(sum)
+    etree.SubElement(response, "result", attrib=attrib).text = result
+    if ext_result:
+        etree.SubElement(response, "ext-result").text = ext_result
+    if ext_description:
+        etree.SubElement(response, "ext-description").text = ext_description
+    if xml_payments:
+        response.append(xml_payments)
+    if xml_ext_payments:
+        response.append(xml_ext_payments)
+    handle = etree.tostring(response, pretty_print=True, encoding='utf-8', xml_declaration=True)
+    return HttpResponse(handle)
+
+
+
+def check_number(number, service, CyberplatError):
+    pattern2 = None
+    if service == u'1':
+        pattern = INTERNAL_NUMBER_PATTERN
+        pattern2 = PERSONAL_ACCOUNT_ID
+    elif service == u'2':
+        pattern = EXTERNAL_NUMBER_PATTERN
+    else:
+        raise CyberplatError({'code': u'-2', 'message': u'Неизвестное значение поля type'})
+    number_re = re.compile(pattern)
+    if not number_re.match(number):
+        number_re2 = re.compile(pattern2)
+        if not number_re2.match(number):
+            raise CyberplatError({'code': u'2', 'message': u'Значение поля number не соответствует регулярному выражению'})
+
+def get_card2(sum, dealer_id, tarif_id=8):
+    # from settings import BILLING_DB
+    """Возвращает логин, пароль и аккаунт от карточки нужного номинала"""
+    cur = connections[settings.BILLING_DB].cursor()
+    cur.execute("SELECT id,pin,login FROM billservice_card WHERE start_date<=CURRENT_DATE and end_date>CURRENT_DATE and type=3 and sold is Null and activated is NULL and tarif_id=%s and disabled=False LIMIT 1 FOR UPDATE;", (tarif_id,))
+    try:
+        id, pin, login = cur.fetchone()
+        # transaction.commit_unless_managed(using=settings.BILLING_DB)
+    except Exception, e:
+        log.add("SELECT id,pin,login FROM billservice_card WHERE start_date<=CURRENT_DATE and end_date>CURRENT_DATE and type=3 and sold is Null and activated is NULL and tarif_id=%s and disabled=False LIMIT 1 FOR UPDATE;" % (tarif_id,))
+        log.add("get card error: '%s'" % (e))
+        return '', ''
+    if id and pin and login:
+        cur.execute("UPDATE billservice_card SET nominal=%s, sold=now() WHERE id=%s", (sum, id,))
+        cur.execute("Insert into billservice_salecard (prepayment,discount_sum,discount,paydeffer,dealer_id,sum_for_pay,created) Values (0, 0, 0, 0, %s, %s, now()) returning id", (dealer_id, sum,))
+        salecard = cur.fetchone()
+        cur.execute("Insert into billservice_salecard_cards (salecard_id,card_id) Values (%s, %s)", (salecard[0], id,))
+        # transaction.commit_unless_managed(using=settings.BILLING_DB)
+        return login, pin
+    else:
+        log.add("id='%s' login='%s' pin='%s'" % (id, login, pin))
+        return '', ''
+
+def payment_cyberplat_process(request):
+    """Страница, на которую прийдет запрос о совершении платежа от cyberplat"""
+    # return HttpResponse('Good')
+
+    """Проверяем наличие POST данных"""
+    if not request.POST:
+        log.add("1 payment_cyberplat_process POST: None")
+        raise Http404
+
+    log.add("2 payment_cyberplat_process POST: '%s'" % request.raw_post_data)
+
+    from lxml import etree
+    authcode = ''
+    code = '0'
+    message = ''
+
+    class CyberplatError(Exception): pass
+
+    try:
+        """получаем данные из запроса"""
+        attrib = {}
+        action = request.POST.get("action", '')
+        number = request.POST.get("number", '')
+        type = request.POST.get("type", '')
+        amount = request.POST.get("amount", '')
+        receipt = request.POST.get("receipt", '')
+        date = request.POST.get("date", '')
+        mes = request.POST.get("mes", '')
+        additional = request.POST.get("additional", '')
+        sign = request.POST.get("sign", '')
+
+        """Проверяем подпись"""
+        raw_post = request.raw_post_data.split('&')
+        for i, r in enumerate(raw_post):
+            if r.startswith('sign='):
+                del(raw_post[i])
+                break
+        s = "&".join(raw_post)
+        # s = p[:p.find('&sign=')]
+        print s
+        from M2Crypto import EVP, RSA
+        PubKey = RSA.load_pub_key ('keys/CyberPlat_RU_pub.pem')
+        VerifyEVP = EVP.PKey()
+        VerifyEVP.assign_rsa(PubKey)
+        VerifyEVP.verify_init()
+        VerifyEVP.verify_update(s)
+        if not VerifyEVP.verify_final (sign.decode('hex')) == 1:
+            print "The string was NOT verified!"
+            raise CyberplatError({'code': u'-4', 'message': u'Ошибка проверки АСП под принятым сообщением'})
+
+        """Проверяем поле additional на соответствие стандарту"""
+        if len(additional) > 250:
+            raise CyberplatError({'code': u'-1', 'message': u'Слишком большое поле additional'})
+        print 'tut0'
+
+        if action == u'check' or action == u'payment':  # Проверка возможности совершения платежа
+            """Проверяем номер на соответствие регулярному выражению"""
+            check_number(number, type, CyberplatError)
+
+            """Проверяем сумму на валидность"""
+            sum_re = re.compile(PRICE_PATTERN)
+            if not sum_re.match(amount):
+                raise CyberplatError({'code': u'3', 'message': u'Недопустимое значение суммы платежа'})
+            sum_d = decimal.Decimal(amount)
+            if sum_d <= decimal.Decimal('0'):
+                raise CyberplatError({'code': u'3', 'message': u'Недопустимое значение суммы платежа'})
+
+
+            if type == u'1':  # Проверяем существует ли такой внутренний номер
+                if len(number) == 7:
+#                     try:
+#                         tel_number = TelNumber.objects.get(tel_number=number)
+#                         account = tel_number.account
+#                         if TEST_CYBERPLAT and number != u'1000016':
+#                                 raise TelNumber.DoesNotExist
+#                     except TelNumber.DoesNotExist:
+#                         raise CyberplatError({'code': u'2', 'message': u'Переданный уникальный идентификатор абонента не зарегистрирован в системе'})
+                    pass
+                else:
+                    try:
+                        account = BillserviceAccount.objects.get(id=int(number.lstrip('0')))
+                        # account = tel_number.account
+                        if TEST_CYBERPLAT and number != u'1000016':
+                                raise BillserviceAccount.DoesNotExist
+                    except BillserviceAccount.DoesNotExist:
+                        raise CyberplatError({'code': u'2', 'message': u'Переданный уникальный идентификатор абонента не зарегистрирован в системе'})
+
+
+
+            if action == u'check':
+                raise CyberplatError({'code': u'0', 'message': u'Абонент существует, возможен прием платежей'})
+
+            if action == u'payment':  # Совершение платежа
+
+                """Проверяем валидность номера платежа"""
+                pattern = r'^[1-9]{1}[0-9]{0,14}$'
+                receipt_re = re.compile(pattern)
+                if not receipt_re.match(receipt):
+                    raise CyberplatError({'code': u'4', 'message': u'Недопустимое значение номера платежа'})
+
+
+
+                """Проверям номер платежа на дублирование"""
+                try:
+                    payment = Invoice_cyberplat.objects.get(receipt=receipt)
+                    authcode = payment.id
+                    date = payment.date.strftime("%Y-%m-%dT%H:%M:%S")
+                    if payment.cancel:
+                        authcode = str(payment.id)
+                        raise CyberplatError({'code': u'0', 'message': u'Платеж с таким номером отменен'})
+                    raise CyberplatError({'code': u'0', 'message': u'Платеж принят'})
+                except Invoice_cyberplat.DoesNotExist:
+                    pass
+
+                """Проверяем валидность даты"""
+                try:
+                    date_t = datetime.datetime(*time.strptime(date, "%Y-%m-%dT%H:%M:%S")[0:6])
+                except:
+                    raise CyberplatError({'code': u'5', 'message': u'Недопустимое значение даты операции'})
+
+
+                if type == u'1':  # Пополнение счета
+
+                    try:
+                        payment = Invoice_cyberplat()
+                        payment.number = number
+                        payment.type = type
+                        payment.sum = amount
+                        payment.receipt = receipt
+                        payment.date = date_t
+                        payment.additional = additional
+                        payment.account = account
+                        payment.test = TEST_CYBERPLAT
+                        payment.mes = mes
+                        payment.save()
+                        authcode = str(payment.id)
+
+                        trn = Billservice_transaction()
+                        trn.bill = 'Пополнение счета через Cyberplat'
+                        trn.account = account
+                        trn.type_id = 'CYBERPLAT_PAYMENT'
+                        trn.approved = True
+                        trn.tarif_id = 0
+                        trn.summ = amount
+                        trn.description = "Cyberplat payment"
+                        trn.created = payment.created
+                        # trn.systemuser_id = 1
+                        # trn.accounttarif_id = 0
+                        trn.save()
+                        trn_new = Billservice_transaction.objects.get(bill=trn.bill,
+                                                                       account=trn.account,
+                                                                       type_id=trn.type_id,
+                                                                       approved=trn.approved,
+                                                                       tarif_id=trn.tarif_id,
+                                                                       summ=trn.summ,
+                                                                       description=trn.description,
+                                                                       created=trn.created,
+                                                                       )
+                        payment.transaction_id = trn_new.id
+                        payment.save()
+                        message = u'Платеж принят'
+                    except Exception, e:
+                        try:
+                            pass
+                            payment.delete()
+                            trn.delete()
+                            trn_new.delete()
+                        except Exception:
+                            pass
+                        log.add("12 payment_cyberplat_process except %s" % e)
+                        raise CyberplatError({'code': u'-3', 'message': u'Невозможно произвести платеж'})
+
+                elif type == u'2':  # Продажа предоплаченных карт
+                    print 'tut2'
+
+                    if sum_d < decimal.Decimal('50'):
+                        raise CyberplatError({'code': u'3', 'message': u'Недопустимое значение суммы платежа'})
+                    try:
+                        if not TEST_CYBERPLAT:
+                            """Получаем логин и пароль для карты доступа на указанную сумму"""
+                            # login, password = get_card2(float(amount), 3)
+                            from cards.models import BillserviceCard
+                            card = BillserviceCard.generate_card(float(amount), '1')
+                            login, password = card.login, card.pin
+                            log.add("20 payment_cyberplat_process login=%s password=%s" % (login, password))
+#                            try:
+#                                tel_number = TelNumber.objects.get(tel_number = login)
+#                                account_id = tel_number.account_id
+#                            except TelNumber.DoesNotExist:
+#                                raise CyberplatError({'code': u'-3', 'message': u'Невозможно получить account id'})
+
+                        else:
+                            login = password = '111'
+                            account_id = 0
+
+                    except Exception, e:
+                        log.add("19 payment_cyberplat_process except %s" % e)
+                        raise CyberplatError({'code': u'-3', 'message': u'Невозможно произвести платеж'})
+
+
+
+                    if not TEST_CYBERPLAT:
+                        try:
+                            from lib.sms import send_sms
+                            r = send_sms(number, SMS_TXT % (login, password), log=log)
+                            if not r:
+                                raise CyberplatError({'code': u'-3', 'message': u'Невозможно произвести платеж, ошибка отправки логина и пароля карты на указанный номер'})
+                        except Exception, e:
+                            log.add("21 payment_cyberplat_process except %s" % e)
+                            raise CyberplatError({'code': u'-3', 'message': u'Невозможно произвести платеж, ошибка отправки логина и пароля карты на указанный номер'})
+
+                    try:
+                        payment = Invoice_cyberplat()
+                        payment.number = number
+                        payment.type = type
+                        payment.sum = amount
+                        payment.receipt = receipt
+                        payment.date = date_t
+                        payment.additional = additional
+                        payment.test = TEST_CYBERPLAT
+                        payment.mes = mes
+                        payment.login = login
+                        payment.save()
+
+                        authcode = str(payment.id)
+                        message = u'Платеж принят'
+                        transaction.commit_unless_managed(settings.BILLING_DB)
+                    except Exception, e:
+                        log.add("22 payment_cyberplat_process except %s" % e)
+                        raise CyberplatError({'code': u'-3', 'message': u'Невозможно произвести платеж, не удается сохранить платеж в БД'})
+                else:
+                    raise CyberplatError({'code': u'-2', 'message': u'Неизвестное значение поля type'})
+
+        elif action == u'cancel':  # Отмена платежа
+
+            # Проверям номер платежа на соответствие регулярному выражению
+            pattern = r'^[1-9]{1}[0-9]{0,14}$'
+            receipt_re = re.compile(pattern)
+            if not receipt_re.match(receipt):
+                raise CyberplatError({'code': u'4', 'message': u'Недопустимое значение номера платежа'})
+
+            try:
+                # Получаем платеж из базы
+                payment = Invoice_cyberplat.objects.get(receipt=receipt)
+            except Invoice_cyberplat.DoesNotExist:  # Если платежа не существует, возвращаем ошибу
+                raise CyberplatError({'code': u'9', 'message': u'Платеж с таким номером не найден'})
+
+            if payment.cancel:
+                authcode = str(payment.id)
+                raise CyberplatError({'code': u'0', 'message': u'Платеж был отменен ранее'})
+
+            if payment.type == 2:  # Если тип платежа "Продажа карт" то его нельзя отменить
+                raise CyberplatError({'code': u'9', 'message': u'Платеж данного типа не может быть отменен'})
+
+            """Отменяем платеж"""
+            authcode = str(payment.id)
+            payment.cancel = True
+            payment.mes = mes
+            payment.save()
+
+            """Удаляем тиранзакцию"""
+            try:
+                trn = Billservice_transaction.objects.get(id=payment.transaction_id, created=payment.created)
+                trn.delete()
+            except Billservice_transaction.DoesNotExist:
+                raise CyberplatError({'code': u'9', 'message': u'Платеж не может быть отменен'})
+
+            message = u'Платеж отменен'
+
+
+        elif action == u'status':
+            print 'tut10'
+            pattern = r'^[1-9]{1}[0-9]{0,14}$'
+            receipt_re = re.compile(pattern)
+            if not receipt_re.match(receipt):
+                raise CyberplatError({'code': u'4', 'message': u'Недопустимое значение номера платежа'})
+            try:
+                payment = Invoice_cyberplat.objects.get(receipt=receipt)
+            except Invoice_cyberplat.DoesNotExist:
+                raise CyberplatError({'code': u'6', 'message': u'Успешный платеж с таким номером не найден'})
+            authcode = str(payment.id)
+            date_t = payment.date
+            date = date_t.strftime("%Y-%m-%dT%H:%M:%S")
+            if payment.cancel:
+                raise CyberplatError({'code': u'7', 'message': u'Платеж с таким номером отменен'})
+            message = u'Успешный платеж'
+        else:
+            print 'tut11'
+            raise CyberplatError({'code': u'1', 'message': u'Неизвестное значение поля action'})
+        print 'tut12'
+
+    except CyberplatError, e:
+        # pass
+        code = e.message['code']
+        message = e.message['message']
+    except Exception, e:
+        code = u'-3'
+        message = str(e)
+
+    try:
+        """Создаем xml-ответ"""
+        response = etree.Element("response")
+
+        if code:
+            etree.SubElement(response, "code").text = str(code)
+        if authcode:
+            etree.SubElement(response, "authcode").text = str(authcode)
+        if date:
+            etree.SubElement(response, "date").text = str(date)
+        if message:
+            etree.SubElement(response, "message").text = message
+        if additional:
+            etree.SubElement(response, "add").text = additional
+
+        handle = etree.tostring(response, pretty_print=False, encoding='cp1251', xml_declaration=True)
+
+        # d = urllib.urlencode(data)
+
+        # from M2Crypto import EVP
+        SignEVP = EVP.load_key ('keys/gh.pem')
+        SignEVP.sign_init ()
+        SignEVP.sign_update (handle)
+        StringSignature = SignEVP.sign_final ()
+        sign = StringSignature.encode ('hex')
+
+        etree.SubElement(response, "sign").text = str(sign)
+        handle = etree.tostring(response, pretty_print=False, encoding='cp1251', xml_declaration=True)
+    except Exception, e:
+        return HttpResponse(e)
+    return HttpResponse(handle)
+
+
+@render_to('payment_card_list.html')
+def payment_card(request):
+    if not request.GET.get('payment_system') in ('qiwi', 'webmoney'):
+        raise Http404
+    context = {'payment_system': request.GET.get('payment_system', '')}
+    context['hide_review'] = True
+    if request.GET.get('payment_system') == 'qiwi':
+        context['meta_title'] = u'Qiwi платежи. Покупка карты доступа'
+    else:
+        context['meta_title'] = u'Webmoney платежи. Покупка карты доступа'
+    return panel_base_auth(request, context)
+
+
+from payment.forms import PaymentRequestFormCard
+from cards.models import BillserviceCard, Card_identification
+from django.http import HttpResponseRedirect
+@login_required
+@render_to('account_payment_card.html')
+def account_payment_card(request):
+    context = {}
+    context['page_card_to_access'] = True
+    account = BillserviceAccount.objects.get(username=request.user)
+    profile = request.user.get_profile()
+    form = PaymentRequestFormCard()
+    context['pay_form'] = form
+    summ = account.ballance + account.credit
+    # print account.id
+    iden = Card_identification.objects.filter(user_id=account.id)
+    context['iden'] = iden
+    context['card_login'] = BillserviceCard.objects.all()
+    context['card_table'] = True
+    # print "iden %s" %type(iden)
+    if not iden:
+        context['card_table'] = False
+
+    if request.POST:
+        if not profile.is_juridical:
+            form = PaymentRequestFormCard(request.POST.copy())
+            context['pay_form'] = form
+            if not form.is_valid():
+                request.notifications.add(u"Ошибка в заполнении", "error")
+            else:
+                amount = form.cleaned_data.get('amount')
+                if summ >= amount:
+                    card = BillserviceCard.generate_card(float(amount), '1')
+                    login, password = card.login, card.pin
+                    card_new = Card_identification()
+                    card_new.card_id = card
+                    card_new.user_id = account
+                    card_new.save()
+
+                    trn = Billservice_transaction()
+                    trn.bill = card.login
+                    trn.account = account
+                    trn.type_id = 'PAYMENT_FOR_CARD'
+                    trn.approved = True
+                    trn.tarif_id = 0
+                    trn.description = "Card_Login=%s" % card.login
+                    trn.summ = -amount
+                    trn.save()
+
+                    context['pay_form'] = False
+                    return HttpResponseRedirect("/account/payment/get_card/success/")
+
+                else:
+                    request.notifications.add(u"У Вас не достаточно денег на счету, пожалуйста пополните баланс счета", "info")
+
+    return context
+
+@render_to('account_payment_card_success.html')
+def account_payment_card_success(request):
+    context = {}
+    context['page_card_to_access'] = True
+    account = BillserviceAccount.objects.get(username=request.user)
+    iden = Card_identification.objects.filter(user_id=account.id)
+    context['iden'] = iden
+    context['card_login'] = BillserviceCard.objects.latest('id')
+    context['card_table'] = True
+    if not iden:
+        context['card_table'] = False
+    return context

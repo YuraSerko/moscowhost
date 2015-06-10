@@ -1,0 +1,723 @@
+{% extends 'base_public.html' %}
+
+
+ 
+{% block config %}
+<link href="{{ MEDIA_URL }}css/modal.css" rel="stylesheet" type="text/css" />
+<style type="text/css">
+</style>
+
+<script type="text/javascript">
+
+$(window).bind('hashchange', function() {
+   		if (window.location.hash == ''){
+   			$( "#ac-2" ).prop( "checked", true );	
+   		}
+});
+
+
+
+
+
+function OnClick(tabhid){
+	 //Получение заголовка по id
+	 var tabh = document.getElementById(tabhid);
+	
+	 if (tabh==null)
+		 return;
+	 
+	 //Ссылка на элемент tab-header
+	 var tabheader=tabh.parentNode;
+	
+	 if (tabheader==null)
+		 return;
+	 
+	 //Получаем все заголовки
+	 var tabhs;
+	 tabhs = SelectChildren(tabheader,'div');
+	
+	 if (tabhs.length == 0)
+		 return;
+	 
+	 //Изменяем стиль ранее выбранного заголовка
+	 for(var i = 0; i < tabhs.length; i++)
+		 if (tabh.style.backgroundColor = '#eee')
+			tabhs[i].style.backgroundColor = '#2884ea';
+	 
+	 //Изменяем стиль выбранного заголовка
+	 tabh.style.backgroundColor = '#FF9521';
+	
+	 var tabcontrol;
+	 
+	 //Получаем ссылку на весь элемент tab-control
+	 try {
+		 tabcontrol = tabheader.parentNode;
+	 } catch (ex)
+	 {
+		 return;
+	 }
+	
+	 var tabbody;
+	 
+	 //Получаем ссылку на раздел содержимого закладок
+	 try {
+		 tabbody = tabcontrol.getElementsByClassName('tab-body')[0];
+	 } catch (ex)
+	 {
+		 return;
+	 }
+	 
+	 //Получаем все элементы содержимого закладок
+	 var tabs;
+	 tabs = SelectChildren(tabbody,'div');
+	
+	 if (tabs.length == 0)
+		 return;
+	
+	 //Получаем содержимое выбранной закладки по ее id, сформированному по id заголовка
+	 var selectedtab= document.getElementById('b'+tabh.id);
+	
+	 if (selectedtab==null)
+		 return; 
+	
+	 //Скрываем содержимое ранее выбранной закладки
+	 for(var i = 0; i < tabs.length; i++)
+		 if (tabs[i].style.display == 'block')
+			tabs[i].style.display = 'none';
+	
+	 //Показываем содержимое выбранной закладки
+	 selectedtab.style.display = 'block';
+	}
+	
+	
+	
+	
+	
+	/*Функция выбора дочерних элементов по имени тэга*/
+	function SelectChildren(node, childname)
+	{
+	 var result = [];
+	
+	 for(var i = 0; i < node.childNodes.length; i++)
+		{
+		 var child = node.childNodes[i];
+		 if (child.nodeType==1) //Элемент
+			if (child.tagName.toLowerCase()==childname.toLowerCase())
+			   result.push(child); 
+		}
+	
+	 return result; 
+	}
+	
+	
+	
+	
+	
+//перезаточено под 1с=======================================================================	
+	function step_zakaz(id, userlogged)
+	{	
+		/*
+		alert('step_zakaz');
+		alert(id);
+		alert(userlogged);
+		*/
+		//смотрим какие checkbox отмечены и сколько человек выбрано и передаем на сервак POST
+		//массив для id software
+		list_software = [];
+		
+		
+		
+		$("#software_table .software_input").each(function () {
+			if ($(this).is(':checked') == true)
+				{
+					list_software[list_software.length] = ($(this).val()).toString();
+				}
+		})
+		
+		
+		
+		
+		
+		
+		
+		//переход на якорь
+		window.location= "#zakaz";
+		//alert(list_software);
+		user_count_id = $('#user_count :selected').val();
+		//alert(user_count_id);
+		software_str = list_software.join('-');
+		//alert(software_str);
+		
+		$.ajax({
+				
+                url: "/virtual_server/step_zakaz/False/"+id+"/",
+                cache: false,
+				async: false,
+				type: "POST",
+				data: {list_software:software_str, user_count_id:user_count_id},
+                success: function(html){
+ 					//alert(html);
+                    $("#id_popup").html(html);  
+                }  
+            });
+		
+		//далее отображаем форму регистрации
+		//alert('step_auth');
+		//alert(userlogged);
+		if ( userlogged =='False' ) 
+			{	
+				
+				virtual_server_step_auth(id,'False');
+			}
+		
+		
+	}
+	
+//=================================================================================================	
+	
+	
+	{% comment %}
+	function step_zakaz_config()
+	{
+		count_hdd = $("#hdd").text();
+		count_ssd = $("#ssd").text();
+		if ((count_hdd==0) && (count_ssd==0))
+			{alert('bad');}
+		else {
+			cpu_id = labels_id_cpu[$.inArray($("#cpu").text(), labels_cpu)]
+			count_ram = $("#ram").text();
+			get = '?cpu_id=' + cpu_id + '&count_ram=' + count_ram + '&count_hdd=' + count_hdd + '&count_ssd=' + count_ssd;
+			$.ajax({
+					url: "/dedicated/step_conf/True/"+get,
+					cache: false,
+					async: false,
+					  
+					success: function(html){
+						
+						$("#id_popup").html(html);
+						  
+					}  
+				});
+		    }
+	}
+	{% endcomment %}
+	
+	
+	function change_count_ip(value) {
+		count_ip = document.getElementById("count_ip").value;
+		if (value == '-') {
+			if (Number(count_ip) > 1) {
+				count_ip = Number(count_ip) - 1;
+			}
+			
+		}
+		if (value == '+') {
+			if (Number(count_ip) < 4) {
+				count_ip = Number(count_ip) + 1;
+			}
+		}
+		document.getElementById("count_ip").value = count_ip;
+	}
+	
+	
+	function change_type_inet(server_id) {
+		
+
+		$.ajax({
+					
+				  	url: "/virtual_server/change_type_inet/"+document.getElementById("type_inet").value+"/",
+					beforeSend: function () 
+					{
+						$("#range_speed").find('option').remove();
+					},
+					complete: function(html)
+					{	
+
+						var id_plus_speed = html.responseText;
+						id_plus_speed = id_plus_speed.split('_');
+						spis_id = id_plus_speed[0].split(', ');
+						speed = id_plus_speed[1].split(', ');
+						select_obj = document.getElementById("range_speed");
+						for (var i=0; i < spis_id.length; i++) {
+							select_obj.options[select_obj.options.length] = new Option(speed[i], spis_id[i]);
+						}
+						dedicated_cost(server_id);
+					}, 
+			
+			  })
+	}
+	
+	
+	function dedicated_cost(server_id) {
+		var get = "?";
+		get += "count_ip=" + document.getElementById('count_ip').value;
+		get += "&speed_inet=" + document.getElementById("range_speed").value;
+		
+		$.ajax({
+		url: "/dedicated/cost_calculation/"+server_id+"/"+get,
+		cache: false,
+		async: false,
+		  
+		success: function(cost){
+					document.getElementById("cost").innerHTML = cost;
+		} 
+		});
+	}
+	
+	
+	
+	function virtual_server_step_auth(server_id, account)
+	{
+		
+		get = "&server_id=" + server_id
+		//get += "&count_ip=" + document.getElementById('count_ip').value;
+		//get += "&speed_inet=" + document.getElementById('range_speed').value;
+		get += "&software_ids=" + document.getElementById('hidden_software_list').innerHTML; 
+		//alert(document.getElementById('hidden_software_list').innerHTML);
+		var str = $("#dedicated_zakaz").serialize();
+		
+		$.ajax({
+		url: '/virtual_server/step_auth/'+ account +'/?'+str+get,
+		cache: false,
+		async: false,
+		  
+		success: function(html){
+			//$("#id_popup").html(html);  //сюда попадает информация о логировании....??? original
+			$("#auth_popup").html(html);  
+			
+		}  
+		});
+		/*document.getElementById('dedicated_zakaz').action = '/dedicated/step_auth/'+ account +'/?'+str+'&server_id='+server_id+'&count_ip='+count_ip;
+		document.getElementById('dedicated_zakaz').submit();*/
+	}
+	
+	
+	
+	function step_final_virtual_server(req)
+	{	
+		//alert('step_final_')
+		var str = $("#form_auth").serialize();
+		$.ajax({
+                url: "/virtual_server/step_"+req+"/?"+str,
+                cache: false,
+				async: false,
+				  
+                success: function(html){
+ 					
+                    $("#auth_popup").html(html);
+					  
+                }  
+            });
+	}
+	
+	
+
+	
+	{% comment %}
+	function step_auth_conf(cpu_id, count_ram, count_hdd, count_ssd)
+	{
+		count_ip = document.getElementById('count_ip').value;
+		get = '?cpu_id='+cpu_id+'&count_ram='+count_ram+'&count_hdd='+count_hdd+'&count_ssd='+count_ssd+'&count_ip='+count_ip;
+		document.getElementById('dedicated_zakaz').action = '/dedicated/step_auth/True/'+get;
+		document.getElementById('dedicated_zakaz').submit();
+	}
+	{% endcomment %}
+		
+</script>
+
+
+
+<style>
+.val {
+	color: #3a7cbd;
+}
+</style>
+
+
+
+
+
+
+
+
+
+
+
+{% if  soft_list %}
+
+	
+
+
+<body onLoad="OnClick('tab-01')">
+	<div class='tab-control'>
+        <!-- div class='tab-header'-->
+            <!--  div id='tab-01' onclick='OnClick(this.id)'>Всё ПО</div-->
+            <!-- div id="tab-02" onClick="OnClick(this.id)">Конфигуратор</div-->
+        <!--/div--> 
+        
+        <div class='tab-body'>
+            <div id='btab-01'>
+            	
+                <table class="t-spec" id = 'software_table'>
+	                    <thead>
+	                        <tr>
+	                            <th>Выбрать</th>
+	                            <th>Название ПО</th>
+	                            <th>Описание</th>
+	                            <th>Стоимость</th>
+	                            
+	                        </tr>
+	                    </thead>
+	                    
+	                    
+	                    <tbody>
+						  
+						  {% for soft_li in soft_list %}
+						  		{% if soft_li.group != None %} <!-- название принадлежит группе -->
+						  			{% ifchanged soft_li.group %}
+						  			<tr class = 'group_header' group = {{ soft_li.group }} >
+					  					<td><input type = "checkbox" onchange = 'sel_group({{soft_li.group}}, this)' class = 'has_group' id ="software_input{{soft_li.id}}"> </input></td>
+					  					<td width="800" class= "soft_name"><label for = "software_input{{soft_li.id}}">{{ soft_li.group_name }}</label></td>
+					  					<!-- td><a href = "{{ soft_li.url_desc }}" style = "color:black!important">инфо</a></td-->
+					  					<td><a   class = "soft_info_link" onClick="show_software_info({{ soft_li.id }})">инфо</a></td>
+					  					<td>{{ soft_li.cost_range }}</td>
+						  			<tr>
+						  			{% endifchanged %} <!-- внутри группы -->
+						  			<tr id = {{soft_li.id}} class = 'group_item hidden_soft_line software_list' group = {{ soft_li.group }} >
+						  				<td></td>
+						  				<td width="800" class= "soft_name"><input onchange="recount_cost()" class = 'software_input' type = radio value = {{soft_li.id}} name = {{soft_li.group}} id ="software_input_gr{{soft_li.id}}"> </input>
+						  								<label  for ="software_input_gr{{soft_li.id}}">{{ soft_li.tariff.name }}</label></td>
+						  				<td></td>
+						  				<!-- td><a href = "{{ soft_li.url_desc }}" style = "color:black!important">no инфо</a></td--> <!-- внутри группы не показываем info -->
+						  				<td>{{ soft_li.cost }}</td>
+						  			</tr>
+						  		{% else %} <!-- нет группы -->
+						  			<tr id = {{soft_li.id}} class = software_list>
+						  				<td><input class = 'software_input' type = "checkbox" value = {{soft_li.id}} onchange="recount_cost()" id = "software_input{{soft_li.id}}"> </input></td>
+						  				<td width="800" class= "soft_name"><label for = "software_input{{soft_li.id}}">{{ soft_li.tariff.name }}</label></td>
+						  				<td><a   onClick="show_software_info({{ soft_li.id }})" class = "soft_info_link">инфо</a></td>
+						  				<td>{{ soft_li.cost }}</td>
+						  			</tr>
+						  		{% endif %}
+						  {% endfor %}
+						  
+						  
+						  
+						  
+	                    
+	                      {% comment %}
+		                      {% for soft_li in soft_list %}	
+		                       <tr id = {{soft_li.id}} group={{soft_li.group}} class = "software_list">
+		                       	<td><input type = "checkbox" id= "checksoftware_{{soft_li.id}}"  value = {{soft_li.id}} group={{soft_li.group}} onchange="funcheck({{soft_li.id}}, {{soft_li.group}})"></input></td>
+		                           <td>{{ soft_li.tariff.name }}</td>
+		                           <td><a href = "{{ soft_li.url_desc }}" style = "color:black!important">инфо</a></td>
+		                           <td>{{ soft_li.cost }}</td>
+		                           <!--td><a href="#zakaz" class="bt bt-blue2" onClick="step_zakaz('{{ server.id }}')">Заказать</a></td-->
+		                       </tr>
+		                      {% endfor %}
+		                  {% endcomment %}
+	                    </tbody>
+                </table>
+                
+                
+                
+                <br>
+	            <div>
+	            	<p><font color = "#0084ff">Количество рабочих мест</font>
+	            	<select id = "user_count" >
+          					{% for user_count in  user_count_for_software %}
+          						<!--option value = '{{ user_count.id }}'-->
+          						<!-- в option value теперь id servera -->
+          						<option value = '{{ user_count.server.id }}'>
+          							{{ user_count.user_count_text }}	
+          						</option>	
+          					{% endfor %}
+	                </select>
+	            </div>    
+            	<br>
+                
+                
+                <!-- убираем сервер -->
+                {% comment %}
+                <table class="t-spec" id = 'server_info' style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>Тариф</th>
+                            <th>Процессор</th>
+                            <th>Память</th>
+                            <th>Диск, HDD</th>
+                            <th>Диск, SSD</th>
+                            <th>Цена, р./мес.</th>
+                            
+                        </tr>
+                    </thead>
+                    <tbody id = "server_info_body">
+                        {% for server in servers %}
+                        <tr>
+                            <td>{{ server.tariff }}</td>
+                            <td>{{ server.cpu }}</td>
+                            <td>{{ server.ram|safe }}</td>
+                            <td>{{ server.hdd|safe }}</td>
+                            <td>{{ server.ssd|safe }}</td>
+                            <td>{{ server.cost }}</td>
+                            <!--td><a href="#zakaz" class="bt bt-blue2" onClick="step_zakaz('{{ server_id }}')">Заказать</a></td-->
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endcomment %}
+               	<!--  --> 
+                
+                
+            <br>
+            <br>     
+            <p><font color = "#0084ff">Стоимость услуги:</font><i><all_cost>{{ total_cost }}</all_cost></i>руб.
+            <br>
+            <br>   
+            </div>
+            
+            
+           
+          
+						<label class="btn right" for="ac-1"><div>НАЗАД</div></label>
+						{% if not user_name %}
+							<label class="btn left" for="ac-3" onClick="step_zakaz('{{ user_count_for_software.0.server.id }}', 'False')" id = "order_button"><div>ДАЛЕЕ</div></label>
+						{% else %}
+							<label class="btn left" for="ac-3" onClick="step_zakaz('{{ user_count_for_software.0.server.id }}', 'True')" id = "order_button"><div>ДАЛЕЕ</div></label>
+						{% endif %}
+					
+            
+            
+            
+
+            
+            
+    	</div>
+	</div>
+
+	<br/>
+
+
+	
+
+
+<a href="#" class="overlay" id="software_info"></a>
+    <div  class="popup_personal" style="min-width: 400px;">
+        <a class="popup_personal-close" href="#close"></a>
+        <div id="id_popup_info" style = "width:950px; height:560px; margin-right:30px; overflow:auto;">
+        <!-- div id="id_popup_info" -->
+        </div>
+    </div>	
+
+
+</body>
+{% endif  %}
+
+
+
+
+<script>
+//====================================================================================================================================================
+/*
+function funcheck(id, group){
+		//alert(id);
+		//alert(group);
+		
+		
+		//current_tr = $("id");
+		//находим по id нужный элемент и если есть в группе еще элемнты делаем их недоступными для выбора
+		$(".software_list").each(function () {
+			
+			   //если изменился на отмечен
+			   current_check = '#checksoftware_' + id;
+			   if ($(current_check).is(':checked')){	
+			
+					if (      ($(this).attr('group') == group)      &&       (id  !=  $(this).attr('id'))       )
+						{ 
+							//добавим стиль...
+							$(this).attr('style', 'font-weight:normal!important;');
+							$(this).find("input[type='checkbox']").attr("disabled", true);
+						}
+			   }
+			
+			 
+			   else {	
+					
+					if (      ($(this).attr('group') == group)      &&       (id  !=  $(this).attr('id'))       )
+						{ 
+							//добавим стиль...
+							$(this).attr('style', '');
+							$(this).find("input[type='checkbox']").attr("disabled", false);
+						}
+			   }
+			
+				//по идее дальше срабатывает либо ajax либо функция считает стоимость взависимости от выбранного ПО
+				
+			
+			
+		});
+		
+		
+	}
+	
+*/
+//====================================================================================================================================================	
+function sel_group(group, check_box_elem){
+	//alert(group);
+	$(".group_item").each(function()
+		{
+			if ($(check_box_elem).is(':checked')){     //флажок есть
+				//alert($(this).attr('group'));
+				if  ($(this).attr('group') == group)
+						{$(this).addClass('visible_soft_line').removeClass('hidden_soft_line');}
+				}
+			
+			else {  //флажка нет
+					if  ($(this).attr('group') == group)
+					{	$(this).addClass('hidden_soft_line').removeClass('visible_soft_line');
+						$(this).find("input[type='radio']").attr('checked', false);
+					}
+				}
+			
+		
+		
+		}	
+	
+	
+	)
+	//пересчет стоимости
+	recount_cost();		
+	
+}
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+//====================================================================================================================================================
+$('#user_count').bind('change', user_count_change);
+
+
+
+function user_count_change(){
+	//$( "#myselect option:selected" ).text();
+	//alert((this:selected).text());
+	
+	user_count_id = $('#user_count :selected').val();
+	new_server_id = $('#user_count').find(":selected").val();
+	
+	
+	{% if not user_name %}
+		attr_to_change = 'step_zakaz('  + "'"   +  new_server_id  +  "'" +  ",'"+ 'False' +  "'" +  ')';
+	{% else %}
+		attr_to_change = 'step_zakaz('  + "'"   +  new_server_id  +  "'" +  ",'"+ 'True' +  "'" +  ')';
+	{% endif %}
+	$('#order_button').attr('onClick', attr_to_change );
+	$('#order_button_accordion').attr('onClick', attr_to_change);
+	//выполняем пересчет данных
+	recount_cost();
+	
+	
+	/*
+	$.ajax({
+		url: "/virtual_server/get_info/",
+		type: "POST",
+		data: {'user_count_id' : user_count_id},
+		cash: false,
+		async: true,
+		success: function(html){
+			
+			//подтягиваем новые данные
+			$('#server_info_body').html(html);
+		}
+	});
+	*/	
+	
+	
+	
+}
+//====================================================================================================================================================
+//изменения 11.03.2015
+function recount_cost(){
+	//alert('in recount');
+	//кол-во пользвователей
+	
+	server_id = $('#user_count :selected').val();
+	software_string = ''
+	//теперь собрать все выбранные пункты по ПО
+	$("#software_table .software_input").each(function () {
+			if ($(this).is(':checked') == true)
+				{
+					//сюда добавим смену цвета перед пересчетом
+					if (!($(this).hasClass('has_group'))){
+						$(this).parent().next().css('color', '#0084ff');
+					}
+					//окончание смены цвета
+					
+					software_string = software_string + ($(this).val()).toString()+ ',';
+				}
+			//и сюда смену цвета
+			else {
+				if (!($(this).hasClass('has_group'))){
+					$(this).parent().next().css('color', 'black');}
+				}
+			
+			
+		})
+
+	//считаем стомость на сервере
+	$.ajax({
+		url:'/virtual_server/recount_cost/',
+		type: 'POST',
+		cash: false,
+		asyc: true,
+		data: {'server_id': server_id, 'software_string':software_string},
+		success:function(html){
+			$('all_cost').html(html);
+		}
+		
+	})
+		
+		
+}
+	
+//====================================================================================================================================================
+function show_software_info(soft_id){
+	//alert(soft_id);
+	//берем из базы ajax шаблон и показываем его
+	url = '/virtual_server/ajax_software_get_template_info/' + soft_id +'/';
+	//alert(url);
+	
+	window.location= "#software_info";
+	$.ajax({
+		url: url,
+		cash: true,
+		type: 'POST',
+		async: true,
+		success: function(html){
+			$("#id_popup_info").html('');
+			$("#id_popup_info").html(html);
+		}
+	})
+	
+	
+}
+	
+//====================================================================================================================================================
+	
+</script>
+
+	
+
+
+
+
+{{ block.super }}
+{% endblock %}

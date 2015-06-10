@@ -1,0 +1,150 @@
+# -*- coding=UTF-8 -*-
+from django.db import models
+
+# Create your models here.
+from billing.models import BillserviceAccount
+from django.conf import settings
+import datetime
+from billing.managers import BillingManager
+from django.db import connection
+
+TYPE_TRANSACTION = [('MANUAL_TRANSACTION', 'MANUAL_TRANSACTION'), ('BANK_TRANSACTION', 'BANK_TRANSACTION')]
+
+TYPE = {1:'Пополнение счёта', 2:'Продажа карт'}
+
+class Billservice_transaction(models.Model):
+    bill = models.CharField(max_length=255, blank=True, null=True, verbose_name=u'Примечание для пользователей')
+    account = models.ForeignKey(BillserviceAccount, blank=True, null=True, verbose_name=u'Пользователь')
+    type_id = models.CharField(max_length=255, choices=TYPE_TRANSACTION,blank=True, null=True, verbose_name=u'Тип транзакции')
+    approved = models.NullBooleanField(default=True)
+    tarif_id = models.IntegerField(blank=True, null=True)
+    summ = models.DecimalField(default='0', max_digits=64, decimal_places=2, verbose_name=u'Сумма', blank=True, null=True)
+    description = models.CharField(max_length=255, blank=True, null=True, verbose_name=u'Примечание для нас')
+    created = models.DateTimeField(blank=True, null=True)
+    systemuser_id = models.IntegerField(blank=True, null=True)
+    promise = models.NullBooleanField(default=False)
+    end_promise = models.DateTimeField(blank=True, null=True)
+    promise_expired = models.NullBooleanField(default=False)
+    accounttarif_id = models.IntegerField(blank=True, null=True)
+    prev_balance = models.DecimalField(default='0', max_digits=64, decimal_places=2,  blank=True, null=True)
+    is_bonus = models.NullBooleanField(default=False)
+
+
+    def save(self, *args, **kwargs):
+        #kwargs['using'] = settings.BILLING_DB
+        if not self.created:
+            self.created = datetime.datetime.now()
+
+        tmp = connection.features.can_return_id_from_insert
+        connection.features.can_return_id_from_insert = False
+        res = super(Billservice_transaction, self).save(*args, **kwargs)
+        connection.features.can_return_id_from_insert = tmp
+        return res
+
+    class Meta:
+        managed = True
+        db_table = "billservice_transaction"
+        verbose_name = "Пополнение и списание счёта"
+        verbose_name_plural = "Пополнения и списания счетов"
+#        ordering = ("tel_number",)
+#        verbose_name = _(u"Internal number")
+#        verbose_name_plural = _(u"Internal numbers")
+    objects = BillingManager()
+
+class Invoice_comepay(models.Model):
+    id_payment = models.CharField(max_length=15)
+    date = models.DateTimeField(blank=True, null=True)
+    pay_account = models.CharField(max_length=15)
+    sum = models.DecimalField(default='0', max_digits=64, decimal_places=2)
+    service_id = models.IntegerField()
+    created = models.DateTimeField(blank=True, null=True)
+    account = models.ForeignKey(BillserviceAccount, blank=True, null=True)
+    test = models.BooleanField(default=False)
+    login = models.CharField(max_length=15, blank=True, null=True)
+
+
+    # def __init__(self, *args, **kwargs):
+        # models.Model.__init__(self, *args, **kwargs)
+        # self.service_id = TYPE[self.service_id]
+        # self.sum = round(self.sum, 2)
+
+    def save(self, *args, **kwargs):
+        kwargs['using'] = settings.BILLING_DB
+        if not self.created:
+            self.created = datetime.datetime.now()
+        return super(Invoice_comepay, self).save(*args, **kwargs)
+
+    class Meta:
+        managed = True
+        db_table = "payments_comepay"
+        verbose_name = "Платёж Comepay"
+        verbose_name_plural = "Платежи Comepay"
+#        ordering = ("tel_number",)
+#        verbose_name = _(u"Internal number")
+#        verbose_name_plural = _(u"Internal numbers")
+
+
+    objects = BillingManager()
+
+class Invoice_cyberplat(models.Model):
+    number = models.CharField(max_length=15)
+    type = models.IntegerField(blank=True, null=True)
+    sum = models.DecimalField(default='0', max_digits=10, decimal_places=2)
+    receipt = models.CharField(max_length=15)
+    date = models.DateTimeField(blank=True, null=True)
+    mes = models.CharField(max_length=3)
+    additional = models.CharField(max_length=250)
+    account = models.ForeignKey(BillserviceAccount, blank=True, null=True)
+    created = models.DateTimeField(blank=True, null=True)
+    test = models.BooleanField(default=False)
+    cancel = models.BooleanField(default=False)
+    transaction_id = models.IntegerField(blank=True, null=True)
+    login = models.CharField(max_length=15, blank=True, null=True)
+    # transaction_created = models.DateTimeField(blank=True, null=True)
+    def save(self, *args, **kwargs):
+        kwargs['using'] = settings.BILLING_DB
+        if not self.created:
+            self.created = datetime.datetime.now()
+
+        return super(Invoice_cyberplat, self).save(*args, **kwargs)
+    class Meta:
+        managed = True
+        db_table = "payments_cyberplat"
+#        ordering = ("tel_number",)
+#        verbose_name = _(u"Internal number")
+#        verbose_name_plural = _(u"Internal numbers")
+    objects = BillingManager()
+
+from billing.managers import BillingManager
+class MobiInvoice(models.Model):
+    payment_id = models.CharField(max_length=20)
+    payment_time = models.DateTimeField()
+    payer_address = models.CharField(max_length=15)
+    shop_params = models.CharField(max_length=255)
+    user_params = models.CharField(max_length=255)
+    demo = models.BooleanField(default=False)
+    account = models.ForeignKey(BillserviceAccount, blank=True, null=True)
+    desc = models.CharField(max_length=255)
+    summ = models.DecimalField(decimal_places=2, max_digits=60)
+    created = models.DateTimeField(default=datetime.datetime.now())
+    authorization_time = models.DateTimeField(null=True)
+    accepted = models.BooleanField(default=False)
+    date_accepted = models.DateTimeField(blank=True, null=True)
+    deleted = models.BooleanField(default=False)
+    transaction_id = models.IntegerField(blank=True, null=True)
+    login = models.CharField(max_length=32, default='')
+    payer_phone = models.CharField(max_length=15, default='')
+
+
+    class Meta:
+        db_table = "payments_mobi"
+        verbose_name = "Платёж Mobi"
+        verbose_name_plural = "Платежи Mobi"
+
+    def save(self, *args, **kwargs):
+        kwargs['using'] = settings.BILLING_DB
+        if not self.created:
+            self.created = datetime.datetime.now()
+
+        return super(MobiInvoice, self).save(*args, **kwargs)
+    objects = BillingManager()

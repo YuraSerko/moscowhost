@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+import psycopg2
+import sys, os
+import datetime
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from billing.models import BillserviceAccount
+from data_centr.models import Zakazy
+from settings import DATABASES
+
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur.connection.set_isolation_level(1)
+cur.connection.commit()
+try:
+    now = datetime.datetime.now()
+    print 'start script at = %s' % now
+    date = datetime.datetime(now.year, now.month, 1)
+    cur.execute("SELECT * FROM billservice_prepaid_minutes WHERE account_id != %s;", (30,))
+    temp_prepaid_minutes = cur.fetchall()
+    for prepaid_minutes in temp_prepaid_minutes:
+        if prepaid_minutes[5]:
+            if date >= prepaid_minutes[5]:
+                print "------------------------------------------------------------------------------"
+                print "-------------------- start calculating minutes for id=%s --------------------" % prepaid_minutes[0]
+                minutes = 0
+                if prepaid_minutes[4] != 0:
+                    cur.execute("SELECT billservice_addonservice.prepaid_minutes FROM billservice_accountaddonservice JOIN billservice_addonservice on(billservice_accountaddonservice.service_id = billservice_addonservice.id) WHERE billservice_accountaddonservice.id=%s ;", (prepaid_minutes[4],))
+                    minutes = cur.fetchall()[0]
+                if prepaid_minutes[4] == 0 and prepaid_minutes[6] != None:
+                    try:
+                        zakaz_obj = Zakazy.objects.get(id=prepaid_minutes[6])
+                    except Zakazy.DoesNotExist:
+                        print 'neru zakaza = %s' % prepaid_minutes[6]
+                        continue
+                    minutes = zakaz_obj.tariff.free_minutes
+                cur.execute("UPDATE billservice_prepaid_minutes SET minutes=%s, date_of_accrual=now() WHERE id=%s;", (minutes, prepaid_minutes[0],))
+                cur.connection.commit()
+                print "add %s minutes" % minutes
+                print "--------------------- end calculating minutes for id=%s ---------------------" % prepaid_minutes[0]
+                print "------------------------------------------------------------------------------"
+    now = datetime.datetime.now()
+    print 'end script at = %s' % now
+except Exception, e:
+    print "Exception in script_for_calculation_minutes: '%s'" % e
+    exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    print "Exception in script_for_calculation_minutes: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+    cur.connection.rollback()
+else:
+    cur.connection.commit()
+print "Calculating minutes for all users is successfully complete"

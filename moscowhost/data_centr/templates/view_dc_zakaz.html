@@ -1,0 +1,445 @@
+
+<form action="/account/demands_dc/activation_zakaz/" method="post">	
+	<input type="hidden" id="hidden_id" name="hidden_id" value="{{ zakaz_obj.id }}"/>
+    <table class="type-4 modal">
+        <caption>
+            <h1 class="title" style="margin: 0;">Редактировать заказ</h1>
+        </caption>
+        {% comment %}
+        <tbody>
+            <tr>
+                <td><label>Тип услуги1</label></td>
+                <td><label class="value">Аренда виртуального сервера с 1С</label></td>
+            </tr>
+            
+            
+       
+            
+            
+            
+            
+            
+            {% if zakaz_obj.software %}
+            <tr style = "background:#F1F1F1;">
+                <td><label>Установленное ПО</label></td>
+                <td><label class="value">{{ zakaz_obj.software|safe }}</label></td>
+            </tr>
+            
+            
+            <tr>
+                <td><label>Количество человек</label></td>
+                <td><label class="value">{{ zakaz_obj.user_count|safe }}</label></td>
+            </tr>
+            
+            {% endif %}
+            
+            
+            
+            
+            
+      
+            
+            
+            
+              <tr style = "background:#F1F1F1;">
+                <td><label>Стоимость</label></td>
+                <td><label class="value">{{ zakaz_obj.cost }} руб.<req>*</req></label></td>
+              </tr>
+             <tr>
+                <td colspan="2">        
+                    <div class="ugc" style="margin: 0; display:inline-block;">
+                    	<small> Не гарантированный интернет (100Мбит/сек), ip адрес</small>
+                        <p><small><req>*</req> Все цены приведены с учетом НДС.</small></p>
+                    </div>
+                    {% if button_activate %}
+                    	{% if server_adrress %}
+                    		<button class="bt bt-blue2" type="submit">Активировать заявку</button>
+                        {% else %}
+                        	</td>
+                            </tr>
+                            <tr>
+                            <td colspan="2">
+                        	<strong style="color: red;">В настоящий момент идет подготовка оборудования.<br /> По окончании подготовки, мы вышлем Вам уведомительное сообщение о готовности.</strong>
+                        {% endif %}
+                    {% endif %}
+                </td>
+             </tr>
+         </tbody>
+         {% endcomment %}
+    </table>  
+</form>
+
+
+<br>
+
+
+
+<!--данные для редактирования-->
+<div>Изменить количество человек</div>
+
+
+<!-- количество человек -->
+<select id = 'user_count'>
+{% for user_count_dict in   c_list %}
+	{% if user_count_dict.current == True  %}
+		<option value = '{{ user_count_dict.user_count_id }}' selected="selected">{{ user_count_dict.user_count_text }}</option>
+	{% else %}
+		<option value = '{{ user_count_dict.user_count_id }}' >{{ user_count_dict.user_count_text }}</option>
+	{% endif %}
+{% endfor %}
+</select>
+<br>
+<br>
+<br>
+
+<div>Изменить программное обеспечение</div>
+<!--  -->
+<div class='tab-control' style = "width:522px; ">
+        <div class='tab-body'>
+        
+            <div id='btab-01' style = "width:522px;height:500px; overflow-y:auto;">
+            
+			 
+			 {% for key, value in  soft_ext_dict.iteritems %}
+
+                <table class="t-spec1" id = 'software_table'>
+	                    <thead>
+	                    	<tr >
+	                    	<td colspan = 4 class= 'toggle_tr' style = "width:882px;">
+	                    		
+	                    		<label for="check_tbs{{ key.id }}">
+			                    	<table class = 'soft_type_header_table'>
+			                    	<tr>
+			                    		<td class = "soft_type_text" >
+			                    			{{ key.type_name }}
+			                    		</td>
+										<td class = "soft_type_stripe">
+											<hr></hr>
+										</td>
+										<td class ="soft_type_image"><image src="../../media/pictures/hide.png"></image></td>
+			                    	<tr>
+			                    	</table>
+			                    </label>
+		                    </td>
+		                    </tr>
+		                    
+	                        <tr class = 'title_soft_head'>
+	                            <th>Выбрать</th>
+	                            <th>Название ПО</th>
+	                            <th>Описание</th>
+	                            <th>Стоимость</th>
+	                            
+	                        </tr>
+	                    </thead>
+	                    
+	                    <input type="checkbox" name="check_table" id="check_tbs{{ key.id }}" style="display: none;">
+	                    <tbody>
+						
+						  {% for soft_li in value %}
+						  		{% if soft_li.group != None %} <!-- название принадлежит группе -->
+						  			{% ifchanged soft_li.group %}
+						  			<tr class = 'group_header' group = {{ soft_li.group }} >
+					  					
+					  					<td width="500" >
+											<!--input type = "checkbox" onchange = 'sel_group({{soft_li.group}}, this)' class = 'has_group' id ="software_input{{soft_li.id}}"> </input-->
+											<input type = "checkbox" onchange = 'sel_group({{soft_li.group}}, this)' class = 'has_group' id ="software_input{{soft_li.group}}"> </input>
+										</td>
+					  					<td class = "al_left">
+					  						<label for = "software_input{{soft_li.id}}">{{ soft_li.group_name }}</label>
+					  					</td>
+					  					<!-- td><a href = "{{ soft_li.url_desc }}" style = "color:black!important">инфо</a></td-->
+					  					<td><a   class = "soft_info_link" onClick="show_software_info({{ soft_li.id }})">информация</a></td>
+					  					<td>{{ soft_li.cost_range }}</td>
+						  			</tr>
+						  			{% endifchanged %} <!-- внутри группы -->
+						  			<!-- tr id = {{soft_li.id}} class = 'group_item hidden_soft_line software_list' group = {{ soft_li.group }} -->
+						  			<tr id = {{soft_li.group}} class = 'group_item hidden_soft_line software_list' group = {{ soft_li.group }} >
+						  				<td></td>
+						  				<td width="500" class= "al_left"><input onchange="recount_cost()" class = 'software_input' type = radio value = {{soft_li.id}} name = {{soft_li.group}} id ="software_input_gr{{soft_li.id}}"></input>
+						  				<label  for ="software_input_gr{{soft_li.id}}" class="pdng">{{ soft_li.tariff.name }}</label></td>
+						  				<td></td>
+						  				<!-- td><a href = "{{ soft_li.url_desc }}" style = "color:black!important">no инфо</a></td--> <!-- внутри группы не показываем info -->
+						  				<td>{{ soft_li.cost }}</td>
+						  			</tr>
+						  		{% else %} <!-- нет группы -->
+						  			<tr id = {{soft_li.id}} class = software_list>
+						  				<td width="500"><input class = 'software_input wth_group' type = "checkbox" value = {{soft_li.id}} onchange="recount_cost()" id = "software_input{{soft_li.id}}"> </input></td>
+						  				<td class = "al_left"><label for = "software_input{{soft_li.id}}">{{ soft_li.tariff.name }}</label></td>
+						  				<td><a   onClick="show_software_info({{ soft_li.id }})" class = "soft_info_link">информация</a></td>
+						  				<td>{{ soft_li.cost }}</td>
+						  			</tr>
+						  		{% endif %}
+						  {% endfor %}
+						  
+						  
+			{% endfor %} <!-- end ext_soft_dict -->			  
+						  
+	                    
+		        
+	         </tbody>
+          </table>
+
+
+</div>			
+</div>
+</div>
+
+
+<br>
+
+<div style = "display:block">
+	<input id = "zakaz_input" value = "{{ zakaz_id }}" style = "display:none;"> </input>
+</div>
+
+
+<div style = 'position:relative;right:50%'>
+	<button onclick = "apply_changes()">OK</button>
+</div>
+
+
+
+
+
+
+
+
+
+
+<!--  -->
+
+
+{% comment %}
+{{ soft_form.as_p }}
+{% endcomment %}
+
+<script>
+//=====================================================================================================================
+/*
+function change_software_type(sel){             //первый select
+  	//b =	$("id_software_type :selected").val();
+    $(sel).val();
+    
+   $.ajax({
+	   type:"POST",
+ 	   data:{'soft_type':$(sel).val()},
+ 	   async:false,
+ 	   url:'/ajax_change_activated_zakaz_soft_type/',
+ 	   success:function(html){
+
+
+ 		   
+ 		   soft_arr = html.split('SPLIT');
+ 		   val_text_arr = soft_arr[0].split(',')
+
+ 		   
+ 		   //fill soft
+ 		   $('#id_software').html('');
+ 		   for (i=0; i<=val_text_arr.length-1; i++)
+ 		  	 {
+ 			   if (val_text_arr[i]!=''){ 
+	 			   v_t = val_text_arr[i].split(':');
+	 			   val = v_t[0];text = v_t[1];
+	 			   $("#id_software").append($("<option></option>").attr('value', val).text(text));
+ 			   }
+ 			 
+ 		  	 }
+ 		  hel(); // вместо select change
+ 		   
+ 		   
+ 		   //fill soft if group
+ 		  $('#id_software_if_group').html('');
+ 		  if (soft_arr[1]!='')
+ 			  {		 
+ 			 		 val_text_arr = soft_arr[1].split(',');
+		 			 for (i=0; i<=val_text_arr.length-1; i++)
+		 		  	 {
+		 			   if (val_text_arr[i]!=''){ 
+			 			   v_t = val_text_arr[i].split(':');
+			 			   val = v_t[0];text = v_t[1];
+			 			   $("#id_software_if_group").append($("<option></option>").attr('value', val).text(text));
+		 			   }
+ 		  			 }
+		 			 
+ 			  		
+ 			  }
+ 		   
+ 		   
+ 			    
+ 		   
+ 	   }
+   })
+  	
+}
+*/
+//=====================================================================================================================
+/*
+$('#id_software').bind('change', hel);  //второй select
+
+function hel(a){
+	//alert('12');
+	//t = $(id_software).val();
+	//alert(t);
+	//здесь передаем данные на сервер и возвращаем стоимость
+	$.ajax({
+		type:"POST", 
+		async:true,
+		data: {'id_software': $(id_software).val()},
+		url:'/ajax_change_activated_zakaz_soft/',
+		success:function(html){
+			alert('success');
+		}
+	})
+	
+	
+}
+*/
+
+//=====================================================================================================================	
+function sel_group(group, check_box_elem){
+	//alert(group);
+	$(".group_item").each(function()
+		{
+			if ($(check_box_elem).is(':checked')){     //флажок есть
+				//alert($(this).attr('group'));
+				if  ($(this).attr('group') == group)
+						{$(this).addClass('visible_soft_line').removeClass('hidden_soft_line');}
+				}
+			
+			else {  //флажка нет
+					if  ($(this).attr('group') == group)
+					{	$(this).addClass('hidden_soft_line').removeClass('visible_soft_line');
+						$(this).find("input[type='radio']").attr('checked', false);
+					}
+				}
+			
+		
+		
+		}	
+	
+	
+	)
+	//пересчет стоимости
+	//recount_cost();		
+	
+}
+
+//=====================================================================================================================
+
+//выбрать текущее по (поставить галочки)
+$(document).ready(function(){
+	index_list = '{{ software_ids }}';
+	index_list_arr = index_list.split(',');
+	/*for (i=0; i<index_list_arr.length; i++)
+		{
+			id = '#software_input' + index_list_arr[i];
+			alert(id);
+			$(id).prop('checked',true);
+		}
+	*/
+	
+
+	
+	software_ids = '{{ software_ids }}';
+	//alert(software_ids);
+	software_ids_arr = software_ids.split(',');
+	for (i=0; i<software_ids_arr.length; i++)
+		{ if (software_ids_arr[i]!='') 
+			{
+				soft_gr_arr =  software_ids_arr[i].split(':');
+				if (soft_gr_arr[1] === 'none'){
+					id = '#software_input' + soft_gr_arr[0];
+					$(id).prop('checked',true);
+				}
+				
+				else       //есть группа
+				{    
+					idgr = '#software_input' + soft_gr_arr[1];
+					$(idgr).prop('checked',true);
+					id = '#software_input_gr' + soft_gr_arr[0];
+					$(id).prop('checked',true);
+					list_sel = "tr[group=" + soft_gr_arr[1] + "]";
+					$(list_sel).addClass('visible_soft_line').removeClass('hidden_soft_line');
+				}
+				
+			}
+		
+		}
+	
+	
+})
+//=====================================================================================================================
+function apply_changes(){
+	
+	//формируем список вновь выбранного ПО
+	//массив для id software
+		list_software = [];
+		
+		
+		
+		$("#software_table .software_input").each(function () {
+			if ($(this).is(':checked') == true)
+				{
+					list_software[list_software.length] = ($(this).val()).toString();
+				}
+		})
+	
+	
+	
+	//alert(list_software);
+ 	software_str = list_software.join(',');
+ 	zakaz_id = document.getElementById('zakaz_input');
+ 	//alert(t.value);
+	url = '/ajax_zakaz_change_apply_changes/' + zakaz_id.value + '/';
+	
+	
+	
+	
+	//отправляем все данные на сервер
+	$.ajax({
+		url: url,
+		type: 'POST',
+		async: false,
+		data: {'list_software': software_str, user_count:$('#user_count').val()}, 
+		success:function(html){
+			//alert('success');
+			location.href = '/account/demands_dc/';
+		}	
+	})
+	
+	
+	
+}	
+
+
+
+	
+	
+</script>
+
+
+
+
+{% comment %}
+<div>
+{% for sl_dict in s_list %}
+	{% ifchanged  sl_dict.type  %}
+			<h1>{{ sl_dict.type }}</h1>				
+	{% endifchanged %}
+	
+	{% ifchanged sl_dict.group %}
+			<h2>{{ sl_dict.group }}</h2>
+	{% endifchanged %}
+	
+	
+	<li>{{ sl_dict.id }}</li>
+{% endfor %}
+</div>
+{% endcomment %}
+
+
+
+
+
+
+
+

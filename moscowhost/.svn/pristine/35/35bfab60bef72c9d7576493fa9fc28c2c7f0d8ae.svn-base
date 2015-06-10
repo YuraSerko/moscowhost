@@ -1,0 +1,84 @@
+# -*- coding=UTF-8 -*-
+
+import sys
+sys.path.append('../../')
+sys.path.append('../')
+# from globalhome.internet_providers import beeline, akado, kom2_internet, onlime, seven_sky, netbynet, nline, awax, qwerty
+# from globalhome.internet_providers.beeline import ExceptionPageDontAvalaible, ExceptionChangeLocationOfTags, ExceptionIncorrectData
+import psycopg2
+import datetime
+import os
+from settings import DATABASES
+from send_mail import send_letter
+
+now = datetime.datetime.now()
+print u"\nStart in: %s" % now.strftime("%Y-%m-%d %H:%M:%S")
+
+
+
+def mik_save(MAC_addresses, porch, floor, address):
+    field_for_search = ''
+    if address:
+        conn_billing = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+        cur_billing = conn_billing.cursor()
+        cur_billing.execute(u'SELECT id, city_id, street_id, house_id FROM internet_connection_address where id=%s;' % (address))
+        address = cur_billing.fetchall()[0]
+        id, city_id, street_id, house_id = address
+        
+        cur_billing.execute(u'SELECT city FROM internet_city where id=%s;' % (city_id))
+        city = cur_billing.fetchall()[0][0]
+             
+        cur_billing.execute(u'SELECT street, street_type FROM internet_street where id=%s;' % (street_id))
+        street, street_type = cur_billing.fetchall()[0]
+
+        cur_billing.execute(u'SELECT house FROM internet_house where id=%s;' % (house_id))
+        house = cur_billing.fetchall()[0][0]
+        
+        city = city.decode('utf-8')
+        street_type = street_type.decode('utf-8')
+        street = street.decode('utf-8')
+        print city, street
+        city = city.replace(u' ', u'')
+        street_type = street_type.replace(u' ', '')
+        street = street.replace(u' ', '')
+        house = house.decode('utf-8')
+        floor = '' if not(floor) else  floor.decode('utf-8')
+        field_for_search = u"%s%s%s%sp%se%s" % (city, street_type, street, house, porch, floor)
+        cur_billing.connection.commit()
+    mac = MAC_addresses
+    mac_split = mac.split('-')
+    mac_end = mac_split[1]
+    pref_mac = mac_split[0][:-len(mac_end)]
+    mac_start = mac_split[0][len(pref_mac):]
+    macaddrs = []
+    for m in xrange(int(mac_start.replace(":", ""), 16), int(mac_end.replace(":", ""), 16) + 1):
+        r = hex(m)[2:].upper().zfill(2)
+        res = []
+        for i in range (0, len(r) / 2):
+            res.append(r[i * 2:i * 2 + 2])
+        macaddrs.append(pref_mac + ':'.join(res))
+    field_for_search += u''.join(i for i in macaddrs)
+    return field_for_search
+
+
+conn_globalhome = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['default'])
+cur_globalhome = conn_globalhome.cursor()
+cur_globalhome.execute('SELECT id, name_of_mikrotik "MAC_addresses", address FROM installed_mikrotiks_mikrotik;')
+
+mikrotiks = cur_globalhome.fetchall()
+for mikrotik in mikrotiks:
+    id, name_of_mikrotik = mikrotik[0], mikrotik[1]
+    cur_globalhome.execute(u"UPDATE installed_mikrotiks_mikrotik SET name_of_mikrotik='%s' WHERE id=%d;" % (name_of_mikrotik.replace('/', '-'), id))
+
+    
+cur_globalhome.connection.commit()
+
+
+finish = datetime.datetime.now()
+print u"\nEnd in: %s" % ((finish - now))
+    
+    
+    
+    
+    
+    

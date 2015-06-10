@@ -1,0 +1,27 @@
+# -*-coding=utf-8-*-
+
+SMS_TXT = """Podrobnosti: http://globalhome.su/content/article/hot_spot/
+Login: %s
+Pin: %s"""
+
+"""Данные для приема платежей webmoney merchant"""
+ALLOW_WEBMONEY = True
+#WM_MERCHANT_ID = "ee2193c0-b3bf-46d7-970b-de55d1092ba9"       #?????????
+WM_SIM_MODE = 0  # 0- успешный тест, 1 - ошибочный тест 3 - 80/20, успшено-ошибочный тест
+#WM_PASSPHRASE = 'cegth vtuf gfccahfpf abu dpkjvftim nfre. ahfpe'
+WM_PASSPHRASE = 'ctn vb c cbk fgoy cby pahrt lx a sdkfhw'
+LMI_PAYEE_PURSE = 'Z136635292262'
+TEST_WM = False
+TEST_RK = False
+
+MAIL_SUBJECT = u'Карта предоплаты GlobalHome'
+MAIL_TEXT = u"""Поздравляем, вы успешно приобрели карту GlobalHome
+
+Номинал: {{ summ }}
+Логин: {{ login }}
+Pin-код: {{ password }}
+
+Для активации карты авторизуйтесь на HotSpot,
+либо пополните счет пройдя по ссылке:
+http://globalhome.su/account/payment/hotspot-card/"""
+

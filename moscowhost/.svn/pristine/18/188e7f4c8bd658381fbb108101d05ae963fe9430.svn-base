@@ -1,0 +1,137 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+import sys, os
+sys.path.append('../../')
+sys.path.append('../')
+sys.path[0] = os.path.abspath('.')
+
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+# from django.core import settings
+from django.core.mail import EmailMessage, EmailMultiAlternatives, SafeMIMEText, SafeMIMEText
+from page.models import Send_mail
+import datetime
+from django.contrib.auth.models import User
+from page.models import UserFiles
+from data_centr.views import send_mail_check
+from account.models import Profile
+from page.models import Sender
+from django.conf import settings
+import mimetypes
+DEFAULT_ATTACHMENT_MIME_TYPE = 'application/octet-stream'
+from django.utils.encoding import smart_str
+from email.mime.base import MIMEBase
+from email import encoders
+from email.header import Header
+
+class EmailMultiAlternativesWithEncoding(EmailMultiAlternatives):
+    def _create_attachment(self, filename, content, mimetype=None):
+        """
+        Converts the filename, content, mimetype triple into a MIME attachment
+        object. Use self.encoding when handling text attachments.
+        """
+        if mimetype is None:
+            mimetype, _ = mimetypes.guess_type(filename)
+            if mimetype is None:
+                mimetype = DEFAULT_ATTACHMENT_MIME_TYPE
+        basetype, subtype = mimetype.split('/', 1)
+        if basetype == 'text':
+            encoding = self.encoding or settings.DEFAULT_CHARSET
+            attachment = SafeMIMEText(smart_str(content,
+                settings.DEFAULT_CHARSET), subtype, encoding)
+        else:
+            # Encode non-text attachments with base64.
+            attachment = MIMEBase(basetype, subtype)
+            attachment.set_payload(content)
+            encoders.encode_base64(attachment)
+        if filename:
+            try:
+                filename = filename.encode('ascii')
+            except UnicodeEncodeError:
+                filename = Header(filename, 'utf-8').encode()
+            attachment.add_header('Content-Disposition', 'attachment',
+                                   filename=filename)
+        return attachment
+
+try:
+    sender_id = int(sys.argv[1])
+except:
+    print u"Укажите id для отправки писем"
+    exit()
+
+mails = Sender.objects.get(id=sender_id)
+
+
+if not mails:
+    print u"Нет писем для отправки"
+    exit()
+
+userlist = mails.user_type
+
+
+print userlist
+user_emails = []
+if userlist == 'active':
+    activ = User.objects.filter(is_active=True)
+    for u in activ:
+        user_emails.append(u.email)
+elif userlist == 'juridical':
+    activ = Profile.objects.select_related()
+    for p in activ:
+        if p.user.is_active and p.is_juridical == True:
+            user_emails.append(p.user.email)
+elif userlist == 'individual':
+    activ = Profile.objects.select_related()
+    for p in activ:
+        if p.user.is_active and p.is_juridical == False:
+            user_emails.append(p.user.email)
+elif userlist == 'admins' :
+    activ = User.objects.filter(is_active=True, is_superuser=True, is_staff=True)
+    for u in activ:
+        user_emails.append(u.email)
+else:
+    user_emails = []
+
+
+from django.core import mail
+connection = mail.get_connection()
+
+# Manually open the connection
+connection.open()
+
+files = UserFiles.objects.filter(sender_id=sender_id)
+# Construct an email message that uses the connection
+for u_email in user_emails:
+    email = EmailMultiAlternativesWithEncoding(mails.subject, mails.message, to=['anarky@tut.by'])
+    s = []
+    for file_name in files:
+        print file_name.file.name
+        print type(file_name.file)
+        print type (file_name.file.name)
+        email.attach_file(file_name.file.path)
+        s.append(unicode(file_name.file)[unicode(file_name.file).rfind('/') + 1:])
+    values = ', '.join(s)
+    try :
+        email.send(fail_silently=True)  # Send the email
+        print "send"
+
+        mail_obj = Send_mail(
+                subject=mails.subject,
+                message=mails.message,
+                date=datetime.datetime.now(),
+                user_id=mails.user_id,
+                email=u_email,
+                status_mail=True,
+                sender_id=sender_id,
+                spis_file=values
+                )
+        mail_obj.save()
+        # email.status_mail = True
+
+    except:
+        email.status_mail = False
+connection.close()
+
+mails.stop_date = datetime.datetime.now()
+mails.save()
+

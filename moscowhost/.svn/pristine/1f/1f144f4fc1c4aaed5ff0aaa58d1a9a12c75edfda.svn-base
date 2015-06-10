@@ -1,0 +1,261 @@
+# -*-coding=utf-8-*-
+
+
+import base64
+from Crypto.Cipher import AES
+import datetime
+from django.http import Http404, HttpResponse
+from django.utils.translation import ugettext as _
+from forms import NetpayForm
+import hashlib
+from lib.decorators import render_to, login_required
+from models import Invoice_Netpay
+from urllib import quote, unquote
+import log
+import os, sys
+from payment.models import Billservice_transaction
+from payment import settings as payment_settings
+from django.template import Template, Context
+from django.conf import settings
+from lib.mail import send_email
+
+
+API_KEY = "ca4mn95h5p2j3v09roa011s3hm"
+AuthSign = '45'
+url_net2pay_pay = 'https://my.net2pay.ru/billingService/paypage/'
+SUCCESS_URL = 'http://globalhome.su/account/'
+FAIL_URL = 'http://globalhome.su/account/'
+
+def md5_base64(text):
+    m = hashlib.md5()
+    m.update(text)
+    r = m.digest()
+    return r.encode('base64').strip()
+
+def crypt_param(val, key):
+    BLOCK_SIZE = 16
+    PADDING = chr(BLOCK_SIZE - len(val) % BLOCK_SIZE)
+    pad = lambda s: s + (BLOCK_SIZE - len(s) % BLOCK_SIZE) * PADDING
+    EncodeAES = lambda c, s: base64.b64encode(c.encrypt(pad(s)))
+    cipher = AES.new(key)
+    encoded = EncodeAES(cipher, val)
+    # print 'Encrypted string:', encoded
+    return encoded
+
+def decrypt_param(val, key):
+    DecodeAES = lambda c, s: c.decrypt(base64.b64decode(s))
+    cipher = AES.new(key)
+    decoded = DecodeAES(cipher, val)
+    padding = decoded[-1:]
+    res = decoded.replace(padding, '')
+    return res
+
+@login_required
+@render_to("netpay_payment.html")
+def payment_netpay(request):
+#    "Отображает интерфейс для оплаты по банковским картам NETPAY"
+#    profile = request.user.get_profile()
+#    if profile.is_juridical:
+#        raise Http404
+
+    user = request.user
+    context = {}
+    form = NetpayForm()
+    if request.POST:
+        form = NetpayForm(request.POST)
+        if form.is_valid():
+            profile = user.get_profile()
+            inv = Invoice_Netpay()
+            inv.amount = form.cleaned_data['money']
+            inv.desc = _(u"Пополнение счета через Netpay")
+            inv.account = profile.billing_account
+            inv.currency = 'RUB'
+            inv.type = 1
+            inv.save()
+
+            md5_api_key = md5_base64(API_KEY)
+            order_date = (datetime.datetime.now() + datetime.timedelta(days=1)).strftime("%Y-%m-%dV%H:%M:%S")
+            # order_date = '2014-06-28V13:39:49'
+            crypt_key = md5_base64(md5_api_key + order_date)[:16]
+
+            params = {}
+            params['description'] = 'ORDER %s' % inv.id
+            params['amount'] = inv.amount
+            params['currency'] = 'RUB'
+            params['orderID'] = inv.id
+            params['cardHolderCity'] = ""
+            params['cardHolderCountry'] = ""
+            params['cardHolderPostal'] = ""
+            params['cardHolderRegion'] = ""
+            params['successUrl'] = SUCCESS_URL
+            params['failUrl'] = FAIL_URL
+
+            params_crypted = []
+            for k, v in params.iteritems():
+                r = crypt_param('%s=%s' % (k, v), crypt_key)
+                params_crypted.append(r)
+
+            print u'&'.join(params_crypted)
+            data = quote('&'.join(params_crypted))
+
+            context["action"] = url_net2pay_pay
+            context["data"] = data
+            context["auth"] = AuthSign
+            context["order_date"] = quote(order_date)  # наш внутренний номер платежа
+            return context
+
+        else:
+            context['form'] = form
+            request.notifications.add(u"Ошибка в заполнении полей", "error")
+            return context
+    else:
+        context['form'] = form
+    return context
+
+
+def payment_netpay_process(request):
+    # API_KEY = "r1l1lf43ithu2j1v573kk6v75j"
+    "Страница, на которую прийдет запрос о совершении платежа"
+    if not request.GET:  # Если нет POST данных генерируем ошибку
+        log.add("1 payment_netpay_process GET: None")
+        raise Http404
+
+    log.add("2 payment_netpay_process GET: '%s'" % (repr(request.GET)))
+
+    class NetpayError(Exception): pass
+
+    try:
+        data = request.GET.get("data", "")
+        expire = request.GET.get("expire", "")
+        auth = request.GET.get("auth", "")
+        # log.add(u"data=%s" % data)
+        # log.add(u"expire=%s" % expire)
+        # log.add(u"auth=%s" % auth)
+#        if authsign != AuthSign:
+#            raise NetpayError(u'Неверный AuthSign')
+#        if not data:
+#            raise NetpayError(u'Отсутствует data')
+
+        "Получаем ключ для расшифровки сообщения"
+        md5_api_key = md5_base64(API_KEY)
+        order_date = unquote(expire)
+        crypt_key = md5_base64(md5_api_key + order_date)[:16]
+
+        params = {}
+        for d in unquote(data).split('&'):
+            r = decrypt_param(d, crypt_key)
+            # log.add(r)
+            try:
+                k, v = r.split('=')
+                params[k] = v
+            except Exception, e:
+                log.add(e)
+
+        order_id = params.get('orderID', '')
+        status = params.get('status', '')
+        transaction_type = params.get('transactionType', '')
+        error = params.get('error', '')
+        log.add("order_id=%s" % order_id)
+        log.add("status=%s" % status)
+        log.add("transaction_type=%s" % transaction_type)
+        log.add("error=%s" % error)
+
+        if not (error == '000' and status == 'APPROVED' and transaction_type == 'Sale'):
+            log.add(u"Неподходящие параметры платежа")
+            return HttpResponse(u"NOT OK")
+
+        """Проверяем запрашивали ли мы такой платеж"""
+        try:
+            inv = Invoice_Netpay.objects.get(id=order_id)
+        except Invoice_Netpay.DoesNotExist:
+            raise NetpayError(u"Запрос платежа с указанным id не найден")
+
+        if inv.end:
+            raise NetpayError(u"Платеж с таким номером уже проведен")
+
+        if inv.type == 1:  # Пополнение счета
+            try:
+                log.add(u"payment_netpay type=1")
+                # Сохраняем информацию по платежу в БД
+                inv.accepted = datetime.datetime.now()
+                inv.end = True
+                # inv.save()
+                # Создаем транзакцию на пополнение счета
+                trn = Billservice_transaction()
+                trn.bill = inv.desc
+                trn.account = inv.account
+                trn.type_id = 'NETPAY_PAYMENT'
+                trn.approved = True
+                trn.tarif_id = 0
+                trn.summ = inv.amount
+                trn.description = inv.desc
+                trn.save()
+                inv.transaction_id = trn.id
+                inv.save()
+                log.add(u"payment_netpay Success!!")
+                return HttpResponse(u"OK")
+            except Exception, e:
+                log.add(u"payment_netpay Except: %s" % e)
+                raise NetpayError(u"Ошибка записи в БД")
+
+        elif inv.type == 2:  # Карты предоплаты
+            log.add("payment_netpay type=2")
+            if not inv.login:
+                try:
+                    """Получаем логин и пароль для карты доступа на указанную сумму"""
+                    from cards.models import BillserviceCard
+                    card = BillserviceCard.generate_card(float(inv.amount), '1')
+                    inv.login = card.login
+                    inv.save()
+                except Exception, e:
+                    log.add(u"payment_netpay Except: %s" % e)
+                    raise NetpayError(u"Ошибка получения логина, пароля для карты")
+            else:
+                card = BillserviceCard.objects.get(login=inv.login)
+
+            login, password = card.login, card.pin
+            log.add(u"payment_netpay login=%s password=%s" % (login, password))
+
+            if inv.payer_phone_number:
+                try:
+                    num = inv.payer_phone_number if len(inv.payer_phone_number) == 11 else '7' + inv.payer_phone_number
+                    from lib.sms import send_sms
+                    r = send_sms(num, payment_settings.SMS_TXT % (login, password), log=log)
+                    if not r:
+                        raise NetpayError(u'Ошибка отправки логина и пароля карты на указанный номер')
+                except Exception, e:
+                    log.add(u"payment_netpay Except: %s" % e)
+                    raise NetpayError(u'Ошибка отправки логина и пароля карты')
+
+            if inv.payer_email:
+                mail_context = {'summ' : inv.amount,
+                                'password': password,
+                                'login': login}
+                subject = Template(payment_settings.MAIL_SUBJECT).render(Context(mail_context))
+                text = Template(payment_settings.MAIL_TEXT).render(Context(mail_context))
+                send_email(subject, text, settings.DEFAULT_FROM_EMAIL, [inv.payer_email])
+                log.add(u'payment_netpay Email succesfully send')
+            try:
+                # Сохраняем информацию по платежу в БД
+                inv.accepted = datetime.datetime.now()
+                inv.save()
+
+            except Exception, e:
+                log.add(u"payment_netpay Except: %s" % e)
+                raise NetpayError(u"Ошибка записи в БД")
+            log.add(u"payment_netpay Success!!")
+            return HttpResponse(u"OK")
+        else:
+            raise NetpayError(u"Неизвестный тип платежа")
+
+    except NetpayError, e:
+        log.add(u"98payment_netpay Error: %s" % e)
+        return HttpResponse(e)
+
+
+    except Exception, e:
+        log.add(u"99payment_netpay Error: %s" % e)
+        exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        log.add("Exception in netpay_process: file:%s line:%s" % (fname, exc_tb.tb_lineno))
+        raise Http404

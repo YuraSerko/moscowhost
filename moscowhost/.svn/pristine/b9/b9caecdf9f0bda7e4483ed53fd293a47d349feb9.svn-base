@@ -1,0 +1,40 @@
+# -*- coding=utf-8 -*-
+
+from django.contrib import admin
+from payment.admin import change_view
+from models import Invoice
+from payment.filters import AllValuesFieldListFilter, DateFieldListFilter
+from payment.admin import export_selected_objects_to_xsl, get_actions
+    
+class Invoice_Admin(admin.ModelAdmin):
+    list_display = ('id', 'phone', 'summ', 'created', 'lifetime', 'check_after', 'accepted', 'date_accepted', 'deleted', 'account', 'login', 'type', 'email', 'phone_sms')  # отображаем колонками
+    list_display_links = ('id',)
+    search_fields = ['id', 'phone', 'summ', 'lifetime', 'check_after', 'account', 'login', 'type', 'phone_sms']
+    list_filter = ('deleted', 'accepted', ('created', DateFieldListFilter), ('type', AllValuesFieldListFilter))
+    readonly_fields = ('id', 'phone', 'summ', 'created', 'lifetime', 'check_after', 'accepted', 'date_accepted', 'deleted', 'account', 'login', 'type', 'email', 'phone_sms')
+    actions = ['export_selected_objects_to_xsl']
+
+    def export_selected_objects_to_xsl(modeladmin, request, queryset):
+        return export_selected_objects_to_xsl(modeladmin, request, queryset)
+    export_selected_objects_to_xsl.short_description = "Загрузить выбранные объекты в XSL"
+    export_selected_objects_to_xsl.allow_tags = True
+
+    
+    def get_actions(self, request):
+        return get_actions(self, request)
+
+    def get_changelist(self, request, **kwargs):
+        """
+        Returns the ChangeList class for use on the changelist page.
+        """
+        from payment.changelist import ChangeList
+        return ChangeList
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        return change_view(self, request, object_id, form_url='', extra_context=None)
+
+
+admin.site.register(Invoice, Invoice_Admin)

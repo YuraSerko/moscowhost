@@ -1,0 +1,15 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags %}
+
+{% block acc_main %}
+
+<div class="under-construction">
+
+    <h1 class="title">{{ title }}</h1>
+
+    <p><img src="{{ MEDIA_URL }}pictures/construction.png" alt=""></p>
+    <p>Данный раздел находится на реконструкции.</p>
+
+</div>
+
+{% endblock %}

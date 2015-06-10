@@ -1,0 +1,309 @@
+# coding: utf-8
+import sys, os
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+
+from  hotspot.models import MobiOrganizationsUnique
+from xml.dom.minidom import parseString
+import shutil
+import subprocess
+
+
+
+org_dict = {1: [301, u'Больницы'], 2:[302, u'Женские%20консультации'],
+            3: [303, u'Клиники'], 4:[304, u'Медицинские%20центры'],
+            5: [305, u'Поликлиники'], 6:[306, u'Родильные%20дома'],
+            7: [307, u'Скорая%20помощь'], 8:[308, u'Стоматология'],
+            9: [309, u'Травмпункты'], 10:[400, u'Парикмахерские'],
+            11:[401, u'Салоны%20красоты'], 12:[402, u'Солярии'],
+            13:[403, u'СПА-салоны'], 14:[500, u'Аварийные%20службы'],
+            15:[501, u'Ателье%20по%20пошиву%20одежды'], 16:[502, u'Коммунальные%20службы'],
+            17:[503, u'Ломбарды'], 18:[504, 'Нотариальные%20услуги'],
+            19:[505, u'Полиграфические%20услуги'], 20:[506, u'Прачечные'],
+            21:[507, u'Такси'], 22:[508, u'Фотоуслуги'],
+            23:[509, u'Химчистки'], 24:[510, u'Юристы'],
+            25:[600, u'Бани%20и%20сауны'], 26:[601, u'Бассейны'],
+            27:[602, u'Спортивные%20комплексы'], 28:[603, u'Стадионы'],
+            29:[604, u'Фитнес-клубы'], 30:[700, u'Гипермаркеты'],
+            31:[701, u'Детские%20магазины'], 32:[702, u'Книжные%20магазины'],
+            33:[703, u'Компьютерные%20магазины'], 34:[704, u'Магазины%20мебели'],
+            35:[705, u'Магазины%20одежды%20и%20обуви'], 36:[706, u'Магазины%20продуктов'],
+            37:[707, u'Магазины%20ткани'], 38:[708, u'Магазины%20хозтоваров'],
+            39:[709, u'Магазины%20электроники'], 40:[710, u'Музыкальные%20магазины'],
+            41:[711, u'Парфюмерные%20магазины'], 42:[712, u'Охотничьи%20и%20рыболовные%20магазины'],
+            43:[713, u'Рынки'], 44:[714, u'Спортивные%20магазины'],
+            45:[715, u'Супермаркеты'], 46:[716, u'Торговые%20центры'],
+            47:[717, u'Ювелирные%20магазины'], 48:[800, u'Рестораны%2C%20кафе%2C%20бары'],
+            49:[801, u'Кинотеатры'], 50:[900, u'АЗС'],
+            51:[1000, u'Центры%20занятости'], 52:[300, u'Аптеки'], 53:[2, u'Банки'],
+            }
+
+
+
+# функция делает xml файл на основе таблицы  MobiOrganizationsUnique
+def orgs_to_xml(org_type):
+    print 'making xml starts'
+    print 'org_type %s' % org_type
+    working_time = u'время работы:'
+    edit = u'редактировать'
+    some_orgs = u'несколько банков'
+    tel = u'тел.:'
+    # словарик для обозначения банков буквами
+#         dict = {1:u'а)', 2: u'б)', 3:u'в)', 4: u'г)', 5:u'д)', 6: u'е)', 7:u'ж)', 8: u'з)', 9:u'и)',
+#                      10: u'к)', 11:u'л)', 12: u'м)', 13: u'н)', 14:u'o)', 15:u'п)', 16:u'р)', 17:u'с)', 18:u'т)', 19:u'у)' }
+
+    # f = open("c:/WebServers/denwer/www/denwer/myLayer.xml", 'rt')
+    f = open("php_script/myLayer.xml", 'rt')
+    data = parseString(f.read())
+    f.close()
+
+
+
+
+
+
+    org_objs = MobiOrganizationsUnique.objects.filter(org_type=org_type)
+    # org_objs = MobiOrganizationsUnique.objects.filter(id=900097)
+    # org_objs = MobiOrganizationsUnique.objects.filter(address__contains='Москва, Краснопресненская наб., 12')
+
+    for org_obj in org_objs:
+        # print org_obj.id
+        #==================================================================================================
+        # для совпадений
+        if (org_obj.equal_coord_range != None) and (org_obj.equal_coord_range == 1):
+        # and (org_obj.equal_coord_range == '1'):
+            # print 'est equal_coord_range'
+            # объединяем все точки в одну
+            # получим список всех объектов с координатми как того что у кот есть запись в таблице
+            org_coincidence_objs = org_objs.filter(x=org_obj.x, y=org_obj.y)
+            i = 1
+            str_ex = ''
+            for org_coincidence_obj in org_coincidence_objs:
+                str_name = '<font size="3"; color="darkblue">' + org_coincidence_obj.org_name + '</font>'
+
+                if org_coincidence_obj.url != 'nourl':
+                    str_url = '<a href ="' + org_coincidence_obj.url + '">' + org_coincidence_obj.url + '</a>'
+                if org_coincidence_obj.url == 'nourl':
+                    str_url = ' '
+                if org_coincidence_obj.hours != 'nohours':
+                    str_hours = working_time + org_coincidence_obj.hours
+                if org_coincidence_obj.hours == 'nohours':
+                    str_hours = ' '
+
+                str_info = '<div class = "last_params"><li>' + tel + org_coincidence_obj.phone + ' ' + str_url + '</li>' + '<li>' + str_hours + '</li></div>'
+                str_ex = str_ex + '<ul class="org_param"><class="number_coincidence">' + str(i) + ')' + ' ' + '<font class = "org_name">' + str_name + "</font></div>" \
+                    + '<div class = "coincidence_params"><li>' \
+                    + org_coincidence_obj.address + '</li>' + str_info + '</div></ul>' \
+                    + '<div id = "but' + str(i) + '"><a href = "#edit_all" class = "edit_button" onclick = "fun_edit_click(' + str(org_coincidence_obj.id) + ',' + str(i) + ')">' + edit + '</a></div></ul>'
+                # str_name = str_name + ' <p>' + str(i) + '.<b>' + org_coincidence_obj.org_name + '</b> тел.:' + org_coincidence_obj.phone + ',' + 'время работы: ' + org_coincidence_obj.hours + '</p>'
+                i = i + 1
+
+            # добавим еще один GeoObjectCollection
+            newScript = data.createElement("GeoObjectCollection")
+            temp_elem_GeoObjectCollection = data.getElementsByTagName('GeoObjectCollection')[0].getElementsByTagName('gml:featureMembers')[0].appendChild(newScript)
+
+            # добавим Style
+            newScript = data.createElement("style")  # стиль для картинок
+            newScriptText = data.createTextNode('#1')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObjectCollection.appendChild(newScript)
+
+
+            newScript = data.createElement("gml:featureMembers")
+            newScriptText = data.createTextNode('temporary value1 not needed then')
+            newScript.appendChild(newScriptText)
+            temp_elem_featureMembers = temp_elem_GeoObjectCollection.appendChild(newScript)
+
+
+            # добавим GeoObject
+            newScript = data.createElement("GeoObject")
+            newScriptText = data.createTextNode('temporary value2 not needed then')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject = temp_elem_featureMembers.appendChild(newScript)
+
+
+            newScript = data.createElement("gml:hintContent")
+            newScriptText = data.createTextNode(some_orgs)
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+            #
+            newScript = data.createElement("gml:balloonContentBody")
+            newScriptText = data.createTextNode(str_ex)
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+            #
+            newScript = data.createElement("gml:balloonContentHeader")
+            newScriptText = data.createTextNode('')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+            #
+            newScript = data.createElement("gml:balloonContentFooter")
+            newScriptText = data.createTextNode('')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+
+
+
+            # добавим gml:Point
+            newScript = data.createElement("gml:Point")
+            newScriptText = data.createTextNode('temporary value4 not needed then')
+            newScript.appendChild(newScriptText)
+            temp_elem_Point = temp_elem_GeoObject.appendChild(newScript)
+
+            # добавим gml:pos
+            newScript = data.createElement("gml:pos")
+            newScriptText = data.createTextNode(str(org_coincidence_obj.x) + ' ' + str(org_coincidence_obj.y))
+            newScript.appendChild(newScriptText)
+            temp_elem_Point.appendChild(newScript)
+        # если точка по заданным координатам одна
+        if (org_obj.equal_coord_range == None):
+            # print 'NOne'
+            # добавим еще один GeoObjectCollection
+            newScript = data.createElement("GeoObjectCollection")
+            temp_elem_GeoObjectCollection = data.getElementsByTagName('GeoObjectCollection')[0].getElementsByTagName('gml:featureMembers')[0].appendChild(newScript)
+
+            # добавим Style
+            newScript = data.createElement("style")  # стиль для картинок
+            newScriptText = data.createTextNode('#1')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObjectCollection.appendChild(newScript)
+
+
+            newScript = data.createElement("gml:featureMembers")
+            newScriptText = data.createTextNode('temporary value1 not needed then')
+            newScript.appendChild(newScriptText)
+            temp_elem_featureMembers = temp_elem_GeoObjectCollection.appendChild(newScript)
+
+
+
+            # добавим GeoObject
+            newScript = data.createElement("GeoObject")
+            newScriptText = data.createTextNode('temporary value2 not needed then')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject = temp_elem_featureMembers.appendChild(newScript)
+
+
+            newScript = data.createElement("gml:hintContent")
+            newScriptText = data.createTextNode(org_obj.org_name)
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+            #
+            newScript = data.createElement("gml:balloonContentBody")
+            if org_obj.url != 'nourl':
+                # org_obj.url
+                str_url = '<a href ="' + org_obj.url + '">' + org_obj.url + '</a>'
+            if org_obj.url == 'nourl':
+                str_url = ' '
+            if org_obj.hours != 'nohours':
+                str_hours = '<li>' + working_time + org_obj.hours + '</li>'
+            if org_obj.hours == 'nohours':
+                str_hours = ' '
+            str_info = '<div class = "last_params"><li>' + tel + org_obj.phone + ' ' + str_url + '</li>' + str_hours + '</div>'
+            str_ex = '<ul class = "org_param"><a href = "#"; return false();><font class = "org_name">' + org_obj.org_name + '</font></a>'\
+                + '<li>' + org_obj.address + '</li>' + str_info \
+                + '<div id = "but"><a href="#edit_all" class="edit_button" onclick = "fun_edit_click(' + str(org_obj.id) + ')">' + edit + '</a></div></ul>'
+            newScriptText = data.createTextNode(str_ex)
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+            #
+            newScript = data.createElement("gml:balloonContentHeader")
+            # str_name = '<font size="3"; color="darkblue">' + org_obj.org_name + '</font>'
+            newScriptText = data.createTextNode('')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+            #
+            # в футер информацию не помещали
+            newScript = data.createElement("gml:balloonContentFooter")
+            # str_info = '<font size="-1">тел.:' + org_obj.phone + ' ' + '<a href ="' + org_obj.url + '">' + str(org_obj.url).replace('http://' , '') + '</a></br>' + '<p style="margin-top:0.0em;margin-bottom:0.0em">время работы:' + org_obj.hours + '</br></font>'
+            newScriptText = data.createTextNode('')
+            newScript.appendChild(newScriptText)
+            temp_elem_GeoObject.appendChild(newScript)
+
+
+
+            # добавим gml:Point
+            newScript = data.createElement("gml:Point")
+            newScriptText = data.createTextNode('temporary value4 not needed then')
+            newScript.appendChild(newScriptText)
+            temp_elem_Point = temp_elem_GeoObject.appendChild(newScript)
+
+            # добавим gml:pos
+            newScript = data.createElement("gml:pos")
+            newScriptText = data.createTextNode(str(org_obj.x) + ' ' + str(org_obj.y))
+            newScript.appendChild(newScriptText)
+            temp_elem_Point.appendChild(newScript)
+
+        #==================================================================================================
+
+
+
+
+    # f = open("c:/WebServers/denwer/www/denwer/myLayer.xml", 'wt')
+    f = open("php_script/myLayer.xml", 'wt')
+    # print 'before writhe'
+    f.write(data.toxml('utf-8'))
+    # print 'after write'
+    f.close()
+
+    print 'xml made %s' % org_type
+
+
+
+
+
+
+
+
+
+
+
+
+
+i = 1
+
+while i <= 53:
+    org_inf = org_dict[i]
+    # print org_inf[0]
+    i = i + 1
+
+
+    # копируем эталон xml потом расскаментировать
+    shutil.copy('php_script/model.xml', 'php_script/myLayer.xml')
+    # делаем xml
+    orgs_to_xml(org_inf[0])
+
+    # меняем дерикторию для сохранения фаийликов
+    f = open("php_script/index.php", "r+")
+    text = f.read()
+    f.close()
+
+    str_beg = text.find('directory')
+    str_p1 = text[0:str_beg - 1]  # до имзеняемой строки
+
+    str_p1_to_end = text[str_beg - 1:len(text)]  # со строкой и до конца
+
+    # находим конец искомой строки
+    end_str_p2 = str_p1_to_end.find(',')
+    str_p3 = text[end_str_p2 + 1 + len(str_p1):len(text)]  # после изменяемой строки
+
+    # изменяемая строка
+    str_p2 = text[str_beg - 1:end_str_p2 + 1 + len(str_p1) ]  # изменяемая строка
+    str_p2_minus3 = str_p2[0:len(str_p2) - 3]
+
+    # находим последний обратный слеш
+    lastsl = str_p2_minus3.rfind('/')
+    str_before_type = str_p2_minus3[0:lastsl + 1]
+
+    # искомая строка
+    str_p2 = str_before_type + str(org_inf[0]) + "/',"
+    text_to_write = str_p1 + str_p2 + str_p3
+
+    f = open("php_script/index.php", "w")
+    text = f.write(text_to_write)
+    f.close()
+
+    # запускаем php скрипт
+    print 'start _ php%s' % org_inf[0]
+    subprocess.call(['/usr/bin/php', 'php_script/index.php'])  #!!! раскоментировать !!!
+    print 'end php%s' % org_inf[0]

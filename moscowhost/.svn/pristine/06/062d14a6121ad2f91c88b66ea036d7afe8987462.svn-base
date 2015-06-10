@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys
+import datetime
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+# from globalhome.data_centr.models import Zakazy, Tariff, Price_connection, Status_zakaza, Service_type, OS, CPU, RAM, HDD
+# from globalhome.data_centr.views import formation_check, send_mail_check, cost_dc
+# from globalhome.account.models import Profile
+# from globalhome.content.models import Check
+# from globalhome.externalnumbers.models import ExternalNumber
+# from globalhome.billing.models import BillserviceAccount
+# from django.contrib.auth.models import User
+# from django.db.models import Q
+import calendar
+import psycopg2
+from settings import DATABASES
+from dateutil.relativedelta import relativedelta
+nas_id = None
+try:
+    nas_id = sys.argv[1]
+except:
+    nas_ids = [92, 144, 148, 149, 150, 156]
+    # exit('Please enter nas_id')
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur.connection.set_isolation_level(1)
+cur.connection.commit()
+
+if nas_id:
+    nas_ids = [nas_id, ]
+
+for nas_id in nas_ids:
+    result = {}
+    cur.execute("""SELECT name from nas_nas WHERE id=%s""" % nas_id)
+    print nas_id, cur.fetchone()[0]
+    start_date = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+    cur.execute("""SELECT DISTINCT ON (account_id, createdate) account_id, createdate, enddate,  nas_int_id  FROM (SELECT account_id, date_trunc('day', date_start) as createdate, date_trunc('day', date_end) as enddate, nas_int_id FROM  radius_activesession WHERE date_start>='%s' and framed_protocol='HotSpot' and nas_int_id=%s) as a""" % (start_date, nas_id))
+    users = cur.fetchall()
+    for user in users:
+        # print user
+        if user[1]:
+            if not result.has_key(user[1]):
+                result[user[1]] = []
+            if user[0] not in result[user[1]]:
+                result[user[1]].append(user[0])
+        if user[2]:
+            if not result.has_key(user[2]):
+                result[user[2]] = []
+            if user[0] not in result[user[2]]:
+                result[user[2]].append(user[0])
+    res = []
+    for date in result:
+        # print date, len(result[date])
+        res.append((date, len(result[date])))
+
+    res.sort(lambda x, y: cmp(x[0], y[0]))
+    for r in res:
+        print r[0].strftime('%Y-%m-%d'), r[1]
+    #    cur.execute("SELECT * FROM billservice_transaction  WHERE type_id='HOTSPOT_PAY' and account_id=%s and created>=%s and created<%s::date + interval '1 day'", (user[0], user[1], user[1]))
+    #    r = cur.fetchall()
+    #    if r:
+    #        # print r
+    #        continue
+    #    cur.execute("""INSERT INTO billservice_transaction(bill, account_id, type_id, approved, tarif_id, summ, description, created)
+    #          select 'Абонентская плата за HotSpot', %s, 'HOTSPOT_PAY', True, null, -cost, 'Оплата за HotSpot', %s  from data_centr_price where id=
+    #          (select price_id_id from data_centr_tariff where id=(select data_centr_tarif_id from nas_nas where id=%s))""", (user[0], user[1], user[2]))
+    #    print "insert for user=%s date=%s, nas=%s" % user
+    # cur.connection.commit()

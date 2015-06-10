@@ -1,0 +1,10 @@
+# -*-coding:utf-8 -*-
+
+from django.utils.translation import ugettext_lazy as _
+from django import forms
+import decimal
+
+class WMPaymentRequestFormCard(forms.Form):
+    amount = forms.IntegerField(initial=50, required=True, min_value=10, label=u"Номинал карты в рублях", help_text=_(u"Укажите сумму в рублях"))
+    email = forms.EmailField(label=_(u'Адрес электронной почты'), required=False, help_text=_(u"На этот адрес вам прийдет логин и пароль приобритаемой карты"))
+    phone_sms = forms.CharField(required=False, min_length=11, max_length=11, label=u"Номер мобильного телефона для получения логина и пароля карты посредством SMS", help_text=_(u"(без скобок, пробелов и разделителей. Пример 79991234567)"))

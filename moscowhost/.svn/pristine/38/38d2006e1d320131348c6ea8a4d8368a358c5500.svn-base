@@ -1,0 +1,24 @@
+# coding: utf-8
+from datetime import datetime
+import os
+from django.conf import settings
+
+LOG_FILE = os.path.dirname(os.path.abspath(__file__)) + os.sep + "logdata.log"
+ENABLED = True
+
+def add(msg):
+    "Добавляет в лог строку с сообщением msg"
+    if settings.LOG_PRINT:
+        print "try write to log:", msg
+    if ENABLED:
+        if os.path.exists(LOG_FILE):
+            f = open(LOG_FILE, "a")
+        else:
+            f = open(LOG_FILE, "w")
+        
+        try:
+            f.write("[%s] " % (datetime.now().strftime("%d.%m.%Y %H:%M:%S")) + msg.encode("utf-8") + "\n")
+        except Exception, e:
+            f.write("[%s] " % (datetime.now().strftime("%d.%m.%Y %H:%M:%S")) + "exception when saving log...\n")
+        f.close()
+

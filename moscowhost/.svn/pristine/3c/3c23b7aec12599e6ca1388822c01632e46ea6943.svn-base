@@ -1,0 +1,18 @@
+#!/usr/bin/env python
+# coding: utf-8
+import datetime
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from data_centr.models import Zakazy
+from data_centr.views import cost_dc
+
+spis_zakaz_id = [671, 672, 673, 674, 675, 676]
+print 'start recost zakazy'
+for zakaz_id in spis_zakaz_id:
+    zakaz_obj = Zakazy.objects.get(id=zakaz_id)
+    print 'recost zakaz id = %s' % zakaz_obj
+    cost = float(cost_dc(zakaz_obj.id))
+    zakaz_obj.cost = '%.2f' % cost
+    zakaz_obj.save()
+print 'end recost'

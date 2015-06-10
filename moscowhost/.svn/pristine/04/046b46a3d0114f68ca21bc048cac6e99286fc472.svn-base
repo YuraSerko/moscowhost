@@ -1,0 +1,44 @@
+#!/usr/bin/env python
+# coding: utf-8
+import psycopg2
+import sys
+import datetime
+import os
+
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings  # @UnresolvedImport
+setup_environ(settings)
+from django.core.mail import send_mail, EmailMultiAlternatives
+from settings import DEFAULT_FROM_EMAIL
+from settings import DATABASES
+import calendar
+from dateutil.relativedelta import relativedelta
+import copy
+
+
+conn = psycopg2.connect("dbname='globalhome-www' user='postgres' host='81.25.45.235' port='5433' password='3445671991'")
+conn2 = psycopg2.connect("dbname='globalhome-www' user='freeswitch' host='localhost' password='1234'")
+cur = conn.cursor()
+cur2 = conn2.cursor()
+cur.connection.set_isolation_level(1)
+#cur2.connection.set_isolation_level(1)
+cur.execute("SELECT 1;")
+cur.execute("SELECT id, text FROM content_article ORDER by id")
+articles = cur.fetchall()
+for article in articles:
+    try:
+        cur2.execute("SELECT * FROM content_article WHERE id=%s", (article[0],))
+        art = cur2.fetchone()
+        if art:
+            cur2.execute("UPDATE content_article SET text=%s WHERE id=%s;", (article[1], article[0],))
+            print "update id = %s" % article[0]
+        else:
+            print "Need create id = %s" % article[0]
+    except Exception, e:
+        print e
+        cur2.connection.rollback()
+    else:
+        cur2.connection.commit()
+print "Operation is successfully complete"

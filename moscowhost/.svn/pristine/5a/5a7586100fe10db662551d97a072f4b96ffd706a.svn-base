@@ -1,0 +1,73 @@
+# -*- coding=utf-8 -*-
+
+
+import datetime
+import log
+from django.contrib import admin
+from payment.filters import  DateFieldListFilter
+from models import Invoice_Netpay
+from payment.admin import export_selected_objects_to_xsl, get_actions
+from payment.models import Billservice_transaction
+
+class Invoice_Netpay_Admin(admin.ModelAdmin):
+    list_display = ['id', 'desc', 'amount', 'account', 'created', 'end', 'login']  # отображаем колонками
+    list_display_links = ('id',)  # какие поля доступны для изменения
+    list_filter = ('end', ('created', DateFieldListFilter),)
+    search_fields = ['id', 'amount', 'desc', 'account__username', 'login' ]
+    ordering = ('created',)
+    readonly_fields = ['id', 'type', 'amount', 'currency', 'desc', 'payer_phone_number', 'payer_email', \
+                       'account', 'created', 'transaction_id', 'end', 'login']
+    actions = ['make_accepted', 'export_selected_objects_to_xsl', 'provodka']
+
+    def provodka(self, request, queryset):
+        for q in queryset:
+            if not q.end and q.type == 1:
+                try:
+                    log.add(u"payment_netpay type=1: Manual")
+                    q.accepted = datetime.datetime.now()
+                    q.end = True
+                    trn = Billservice_transaction()
+                    trn.bill = q.desc
+                    trn.account = q.account
+                    trn.type_id = 'NETPAY_PAYMENT'
+                    trn.approved = True
+                    trn.tarif_id = 0
+                    trn.summ = q.amount
+                    trn.description = q.desc
+                    trn.save()
+                    q.transaction_id = trn.id
+                    q.save()
+                    log.add(u"payment_netpay Success!!: Manual")
+                except Exception, e:
+                    log.add(u"payment_netpay Except: %s" % e)
+        return
+    provodka.short_description = u'Провести платежи'
+
+    def export_selected_objects_to_xsl(self, request, queryset):
+        return export_selected_objects_to_xsl(self, request, queryset)
+    export_selected_objects_to_xsl.short_description = "Загрузить выбранные объекты в XSL"
+    export_selected_objects_to_xsl.allow_tags = True
+
+    def make_accepted(self, request, queryset):
+        for q in queryset:
+            q.accepted = datetime.datetime.now()
+            q.end = True
+            q.save()
+        return
+    make_accepted.short_description = u"Пометить как проведенный"
+    make_accepted.allow_tags = True
+
+    def get_actions(self, request):
+        return get_actions(self, request)
+
+    def has_add_permission(self, request):
+        return False
+
+    def get_changelist(self, request, **kwargs):
+        """
+        Returns the ChangeList class for use on the changelist page.
+        """
+        from payment.changelist import ChangeList
+        return ChangeList
+
+admin.site.register(Invoice_Netpay, Invoice_Netpay_Admin)

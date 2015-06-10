@@ -1,0 +1,141 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags lib_tags %}
+
+{% block content %}
+
+
+
+{% if site != 3 %}
+<h1 class="title">Покупка карты</h1>
+
+{{ block.super }}
+{% endif %}
+
+{% if site == 3 %}
+<style type="text/css">
+    .form-submit-left {
+        display: block;
+    }
+    .h4_style {
+color: #535353;
+font-size: 12px;
+}
+h4 {
+font-size: 1em;
+margin: 1.33em 0;
+}
+</style>
+{% block sendin %}
+    {{block.super}}
+{% endblock %}
+
+  <article id="right">
+    <div id='centr_field'>
+
+    {% block cap %}
+    {{block.super}}
+{% endblock %}
+<h1 class="title" style="float: none;">Покупка карты</h1>
+
+{% if notifications %}
+        {% for message in notifications %}
+                            <div class="status status-{{ message.tags }}">
+                                <i class="ico"></i>
+                                <div class="status-i">
+                                    <p>{{ message }}</p>
+                                </div>
+                            </div>
+                        {% endfor %}
+    {% endif %}
+
+{% endif %}
+
+
+
+{% if pay_form %}
+    <style type="text/css">
+    .field-errors{
+        left:170px;
+    }
+    </style>
+    <form name="redirect" id="redirect" method="POST"  action="{{success}}" style="margin-left: 20px;margin-top: 50px; margin-bottom: 50px">
+        <div class="popup-form payment-card">
+            {% for field in pay_form %}
+                {% form_field field block %}
+            {% endfor %}
+            <div class="">
+                <input class="bt bt-blue2" type="submit" name="submit"  value="Получить карту">
+            </div>
+        </div>
+    </form>
+    
+{% else %}
+
+  
+    
+    <body>
+    <div class="status status-success">
+                                <i class="ico"></i>
+                                <div class="status-i">
+                                    <p>Ваш логин и пароль карточного пользователя успешно создан.</p>
+                                </div>
+                            </div>
+            <!--form method="post" name="new">
+                <input type="submit" name="card" value="новая карта">
+            </form-->
+    
+     
+{% endif %}
+
+
+
+{% if card_table %}
+    <h7 style = "color: #535353;">Вашы карты доступа:</h7>
+   <div class="form-row last_login">
+<div>
+<table class="type-3" id = "card_table" border="1">
+  <thead>
+  <tr>
+ <th>Логин </th>  <th>Пароль </th>  <th>Номинал </th>
+
+
+  </tr></thead>
+  <tbody>
+    {% for i in iden %}
+   
+   <tr style = "{% cycle 'background: #EDF3FE;' 'raw2'%}"> 
+{% for c in card_login %}
+
+{% if i.card_id_id == c.id %}
+
+             
+        <td>{{ c.login }}</td>
+        <td>{{ c.pin}}</td>       
+        
+         
+
+
+
+<td>{{c.nominal}}</td>
+ {% endif %}
+{% endfor %}
+
+{% endfor %}
+
+
+</tr>
+
+</tbody>
+</table>
+</div>
+</div>
+{% endif %}
+
+{% if site == 3 %}
+    </article>
+    </div>
+{% endif %}
+
+
+
+{% endblock %}

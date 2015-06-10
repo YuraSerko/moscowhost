@@ -1,0 +1,44 @@
+# coding: utf-8
+import sys, os
+from time import localtime, strftime
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome' 
+from grab import Grab
+from globalhome.hotspot.models import HotSpotWeatger
+ADRESS = 'http://www.yandex.ru/'
+W_NOW = '//*[@class="b-weather"]/div[@class="b-content-item__title"]/a[@class="b-link_black_novisit"]'
+W_SPRITE = '//*[@class="b-weather"]/div[@class="b-content-item__title"]/a[@class="b-weather__icon_link"]'
+W_DATA = '//*[@class="b-weather"]/div[@class="b-weather__info"]'
+P_TABLE_by = '//*[@class="b-stocks-i b-stocks-i-cash"]'
+P_TABLE_ru = '//*[@class="b-stocks-i b-stocks-i-currency"]'
+WEATHER_CLASS_DICT = {u'облачно':'cloudy',
+                      u'ясно':'clear',
+                      u'облачно с прояснениями':'cloudy_clear',
+                      u'облачно, небольшой дождь':'cloudy_rain'}
+
+g = Grab()
+g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+g.go('http://www.yandex.ru/')
+#weather_block
+try:
+    now=g.xpath_text(W_NOW)
+    weth = g.xpath_text(W_DATA)
+    print '%s, %s' %(now, weth)
+    weather_sprite = 'default'  
+    if WEATHER_CLASS_DICT.has_key(g.xpath(W_SPRITE).get('title')):
+        weather_sprite = WEATHER_CLASS_DICT[g.xpath(W_SPRITE).get('title')]
+        print g.xpath(W_SPRITE).get('title')
+except Exception,e:
+    print 'weather_block %s' %e
+try:
+    wether_object = HotSpotWeatger(
+                     temp_now = now,
+                     temp_d_n = weth,
+                     spr_class = weather_sprite,
+                     title = g.xpath(W_SPRITE).get('title'),
+                     date=strftime("%Y-%m-%d", localtime())             
+                                   )
+    wether_object.save()
+except Exception,e:
+    print 'DB_save_error %s' %e
+

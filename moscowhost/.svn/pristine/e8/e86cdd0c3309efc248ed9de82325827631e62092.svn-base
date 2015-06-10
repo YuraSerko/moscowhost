@@ -1,0 +1,242 @@
+# coding: utf-8
+import sys, os
+
+from time import localtime, strftime
+import urllib, urllib2, cookielib
+import json
+import json
+import urllib
+import re
+import binascii
+from grab import Grab 
+import time
+import datetime
+
+
+# import urllib2
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome' 
+from grab import Grab
+from  hotspot.models import MobiOrganizationsUnique
+
+
+
+print 'script starts'
+
+
+
+
+
+
+
+
+
+# y = 55.62  # orig
+# yend = 55.63  # orig
+# # yend = 55.73  #был тест на 1 четвертую
+# # yend = 55.541
+# x = 37.26  # orig
+# # xend = 37.23
+# xend = 37.27  # orig
+# # xend = 37.515 # был тест на 1 четвертую
+
+
+
+
+
+
+def take_org(org_type_id, str_org_type):
+    global x, y , yend, xend
+
+    try:
+        while x <= xend:
+            while y <= yend:
+                # print 'ssss'  # для итерации
+
+                # ADRESS = 'http://maps.yandex.ru/?text=Банки&z=17&results=20000&ll=' + str(x) + '%2C' + str(y) + '&l=map&spn=0.025663%2C0.007964'
+                # ADRESS = 'http://maps.yandex.ru/?text=Банки&z=16&results=20000&ll=' + str(x) + '%2C' + str(y) + '&l=map&spn=0.025663%2C0.007965' #orig
+                # ADRESS = 'http://maps.yandex.ru/?text=Банки&z=16&results=20000&ll=' + str(x) + '%2C' + str(y) + '&l=map&spn=0.045663%2C0.014965' #x2
+                ADRESS = 'http://maps.yandex.ru/?text=' + str_org_type + '&z=16&results=20000&ll=' + str(x) + '%2C' + str(y) + '&l=map&spn=0.085663%2C0.028965'  # x4
+                # print ADRESS
+                g = Grab()
+                import logging
+                logging.disable(logging.CRITICAL)
+                g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+                g.go(ADRESS)
+                
+
+                res = g.response.body
+
+                
+
+                json_start = res.find('"application/json">')
+    
+                new_res = res[json_start + 19: len(res)]
+
+                json_end = new_res.find('</script><script type="text/javascript">')
+      
+                new_res1 = new_res[0:json_end]
+    
+                
+                
+                
+                j = json.loads(new_res1)
+                
+     
+               
+                feats = j['vpage']['data']['businesses']['GeoObjectCollection']['features']
+ 
+           
+                
+                
+           
+                    
+                for feat in feats:
+        
+            
+                    org_type = org_type_id
+                    try:
+                        yan_id = feat['properties']['CompanyMetaData']['id']
+                    except:
+                        yan_id = 0
+                    # ////////////////////////////////////////////////////////////////    
+                    try:
+                        org_name = feat['properties']['CompanyMetaData']['name']
+                    except:
+                        org_name = 'noname'
+                    # ///////////////////////////////////////////////////////////////    
+                    try:
+                        location = feat['properties']['CompanyMetaData']['AddressDetails']['Country']['Locality']['LocalityName']
+                    except:
+                        location = 'nolocation'
+                    # ///////////////////////////////////////////////////////////////////////////////    
+                    try:
+                        address = feat['properties']['CompanyMetaData']['AddressDetails']['Country']['AddressLine']
+                    except:
+                        address = 'noaddress'
+                    # ///////////////////////////////////////////////////////////////////////////////
+                    try:
+                        url = feat['properties']['CompanyMetaData']['urls'][0]
+                    except:
+                        url = 'nourl'
+                    # ////////////////////////////////////////////
+                    try:
+                        phone = feat['properties']['CompanyMetaData']['Phones'][0]['formatted']
+                    except:
+                        phone = 'nophone'
+                    # ////////////////////////////////////////////
+                    try:
+                        hours = feat['properties']['CompanyMetaData']['Hours']['text']
+                    except:
+                        hours = 'nohours'
+                    # ////////////////////////////////////////////////////////
+                    try:
+                        x1 = float(feat['geometry']['coordinates'][0])
+                        y1 = float(feat['geometry']['coordinates'][1])  
+                    except:
+                        x1 = 0
+                        y1 = 0
+                    #print org_name
+                    # если нет совпадений записываем в базу
+                    try:
+                        temp_o = MobiOrganizationsUnique.objects.get(org_name=org_name, address=address, org_type=org_type_id)         
+                    except MobiOrganizationsUnique.DoesNotExist: 
+ 
+                        mo = MobiOrganizationsUnique(org_type=org_type, yan_id=yan_id, org_name=org_name, location=location,
+                                  address=address, url=url, phone=phone, hours=hours, x=x1, y=y1)
+           
+                        mo.save()
+    
+                # y = y + 0.00195 #orig
+                y = y + 0.0039
+            # x = x + 0.00345 #orig
+            x = x + 0.0069
+            y = 55.54  # orig
+    except Exception, e:
+        print e
+# заканчивается функция take_org
+
+
+
+
+
+# словарик для всех организаций
+org_dict = {1: [301, u'Больницы'], 2:[302, u'Женские%20консультации'],
+            3: [303, u'Клиники'], 4:[304, u'Медицинские%20центры'],
+            5: [305, u'Поликлиники'], 6:[306, u'Родильные%20дома'],
+            7: [307, u'Скорая%20помощь'], 8:[308, u'Стоматология'],
+            9: [309, u'Травмпункты'], 10:[400, u'Парикмахерские'],
+            11:[401, u'Салоны%20красоты'], 12:[402, u'Солярии'],
+            13:[403, u'СПА-салоны'], 14:[500, u'Аварийные%20службы'],
+            15:[501, u'Ателье%20по%20пошиву%20одежды'], 16:[502, u'Коммунальные%20службы'],
+            17:[503, u'Ломбарды'], 18:[504, 'Нотариальные%20услуги'],
+            19:[505, u'Полиграфические%20услуги'], 20:[506, u'Прачечные'],
+            21:[507, u'Такси'], 22:[508, u'Фотоуслуги'],
+            23:[509, u'Химчистки'], 24:[510, u'Юристы'],
+            25:[600, u'Бани%20и%20сауны'], 26:[601, u'Бассейны'],
+            27:[602, u'Спортивные%20комплексы'], 28:[603, u'Стадионы'],
+            29:[604, u'Фитнес-клубы'], 30:[700, u'Гипермаркеты'],
+            31:[701, u'Детские%20магазины'], 32:[702, u'Книжные%20магазины'],
+            33:[703, u'Компьютерные%20магазины'], 34:[704, u'Магазины%20мебели'],
+            35:[705, u'Магазины%20одежды%20и%20обуви'], 36:[706, u'Магазины%20продуктов'],
+            37:[707, u'Магазины%20ткани'], 38:[708, u'Магазины%20хозтоваров'],
+            39:[709, u'Магазины%20электроники'], 40:[710, u'Музыкальные%20магазины'],
+            41:[711, u'Парфюмерные%20магазины'], 42:[712, u'Охотничьи%20и%20рыболовные%20магазины'],
+            43:[713, u'Рынки'], 44:[714, u'Спортивные%20магазины'],
+            45:[715, u'Супермаркеты'], 46:[716, u'Торговые%20центры'],
+            47:[717, u'Ювелирные%20магазины'], 48:[800, u'Рестораны%2C%20кафе%2C%20бары'],
+            49:[801, u'Кинотеатры'], 50:[900, u'АЗС'],
+            51:[1000, u'Центры%20занятости'], 52:[300, u'Аптеки']
+            }
+
+
+
+
+
+
+
+z = 1
+t = 4
+
+
+# зацикливаем на случай разрыва связи (500000 или заменить на бесконечный цикл????)
+while t <= 52:
+    
+    
+    
+    # обнуляем значения координат
+    y = 55.54  # orig
+    yend = 55.93  # orig
+    # yend = 55.73  #был тест на 1 четвертую
+    # yend = 55.541
+    x = 37.17  # orig
+    # xend = 37.23
+    xend = 37.86  # orig
+    # xend = 37.515 # был тест на 1 четвертую
+    
+    
+    
+    org_inf = org_dict[t]
+    print 'start %s' % org_inf[1], datetime.datetime.now()  # начало организации  
+    try:
+        while z < 500000:
+            take_org(org_inf[0], org_inf[1])
+            z = z + 1
+    except Exception, e:
+        print e
+        
+    print 'end %s' % org_inf[1], datetime.datetime.now()  # конец организации
+    time.sleep(3600)  # seconds задержка час
+    z = 1  # 5000000 на следующую организацию
+    
+    
+
+    
+    
+    t = t + 1  # переход к следующей организации
+
+# окончание скрипта
+print 'end'
+
+
+

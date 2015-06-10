@@ -1,0 +1,114 @@
+#!/bin/env python
+# -*- coding: utf-8 -*-
+#----------------------------------------------------------------------------
+# Name:       cbrroe.py
+# Version:    1.0.8
+#
+# Get XML document from XML web-service www.cbr.ru,
+# Parse it and insert into database.
+#
+# Purpose:    CBR Rate of Exchange
+#
+# Author:     Eugene Klepikov
+# E-Mail:     klek@comtv.ru
+#
+# Created:    14.04.2005
+# Updated:    20.04.2005
+# Copyright:  (c) 2005 Klek
+# Licence:    GPL
+#
+# Set correct value sEncoding to your system encoding
+#
+#----------------------------------------------------------------------------
+##
+'''
+Get XML document from XML web-service www.cbr.ru,
+Parse it and insert into database.
+'''
+
+print "script_for_get_rate"
+
+from time import localtime, strftime
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_mobi' 
+import urllib
+import xml.dom.minidom
+from hotspot.models import HotSpotRate 
+import decimal
+# sEncoding="cp1251"
+# dbServer="localhost"   # Name or IP MySQl server
+# dbName="ebs"       # Data Base name
+# tblName="hot_spot_rate"
+# dbUser="ebs"         # User name
+# dbPasswd="1234"       # User password
+#---------------------------------------------------------------------------
+
+def ekGetInput(sDate):
+    
+    sURL="http://www.cbr.ru/scripts/XML_daily.asp?date_req=%s" % (sDate)
+    u=urllib.urlopen(sURL)
+    return u.read()
+
+#---------------------------------------------------------------------------
+def ekParseXMLDoc(xmlDoc):
+    lstDicXMLNodes=[]
+    dicXMLNodes={}
+    xmldoc=xml.dom.minidom.parseString(xmlDoc)
+    
+    root=xmldoc.documentElement
+    
+    for valute in root.childNodes:
+        if valute.nodeName=='#text':
+            continue
+        for ch in valute.childNodes:
+            if ch.nodeName=='#text': # Drop TextNode, that is means "\n" in the xml document
+                continue
+            dicXMLNodes[ch.nodeName]=ch.childNodes[0].nodeValue
+        lstDicXMLNodes.append(dicXMLNodes)
+        dicXMLNodes={}
+    return lstDicXMLNodes
+
+#---------------------------------------------------------------------------
+def main():
+    import datetime    
+    lstDicXMLNodes=()
+    d = datetime.datetime.now() #+datetime.timedelta(1)
+    sDate=d.strftime("%d.%m.%Y")
+    sRevDate=d.strftime("%Y-%m-%d")
+    #sDate="03.04.2005"
+    #sRevDate="2005-04-03"
+    import datetime
+    print "-----",sDate,"-----\n"
+    lstDicXMLNodes=ekParseXMLDoc(ekGetInput(sDate))
+    try:  
+        HotSpotRate.objects.get(date=sRevDate) 
+    except HotSpotRate.DoesNotExist:
+        for dicXMLNode in lstDicXMLNodes:
+                name = dicXMLNode['Name']
+                if dicXMLNode['Name'] == u'Фунт стерлингов Соединенного королевства':
+                    name =u'Фунт'
+                elif dicXMLNode['Name'] == u'Доллар США':
+                    name= u'Доллар'
+            
+                rate = HotSpotRate(
+                               date=sRevDate,
+                               char_code=dicXMLNode['CharCode'],
+                               nominal=dicXMLNode['Nominal'],
+                               name=name,
+                               value= (dicXMLNode['Value'].encode('utf-8')).replace(',','.')
+                               )
+                rate.save()
+        print "\n\nDone ;)" 
+    except:
+        pass     
+    
+
+        
+
+#---------------------------------------------------------------------------
+if __name__ == '__main__' :   
+    sys.exit( main() )
+
+#----------------------------------------------------------------------------
+#

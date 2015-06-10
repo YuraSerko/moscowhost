@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys, os
+import datetime
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+from billing.models import BillserviceAccount
+from data_centr.models import Zakazy, Data_centr_payment
+from data_centr.views import send_mail_check, add_document_in_dict_for_send
+from account.models import Profile
+from findocs.models import Rules_of_drawing_up_documents, Check, Act, Invoice, FinDocSignedZakazy, FinDocSigned
+from django.contrib.auth.models import User
+from django.db.models import Q
+from django.db import connections
+from dateutil.relativedelta import relativedelta
+
+spis_zakaz = []
+all_zakazy = Zakazy.objects.filter(date_deactivation = None).order_by('id')
+i = 0
+for zakaz in all_zakazy:
+    i = i + 1
+    print '%s / %s' % (i, len(all_zakazy))
+    profile_obj = Profile.objects.get(billing_account_id = zakaz.bill_account.id)
+    if zakaz.service_type.id in (1, 2,):
+        fin_doc_zakaz = FinDocSignedZakazy.objects.filter(fin_doc__findoc__slug='telematic_data_centr', zakaz_id = zakaz.id)
+        if not fin_doc_zakaz:
+            findoc_sign = FinDocSigned.objects.get(findoc__slug='telematic_data_centr', signed_by=profile_obj.user, cancellation_date=None)
+            fin_doc_sign_zakaz = FinDocSignedZakazy(fin_doc = findoc_sign, zakaz_id=zakaz.id)
+            fin_doc_sign_zakaz.save()
+            spis_zakaz.append(zakaz)
+    elif zakaz.service_type.id in (3,):
+        fin_doc_zakaz_1 = FinDocSignedZakazy.objects.filter(fin_doc__findoc__slug='telematic_services_contract', zakaz_id = zakaz.id)
+        fin_doc_zakaz_2 = FinDocSignedZakazy.objects.filter(fin_doc__findoc__slug='localphone_services_contract', zakaz_id = zakaz.id)
+        if not fin_doc_zakaz_1:
+            findoc_sign_1 = FinDocSigned.objects.get(findoc__slug='telematic_services_contract', signed_by=profile_obj.user, cancellation_date=None)
+            fin_doc_sign_zakaz = FinDocSignedZakazy(fin_doc = findoc_sign_1, zakaz_id=zakaz.id)
+            fin_doc_sign_zakaz.save()
+        if not fin_doc_zakaz_2:
+            findoc_sign_2 = FinDocSigned.objects.get(findoc__slug='localphone_services_contract', signed_by=profile_obj.user, cancellation_date=None)
+            fin_doc_sign_zakaz = FinDocSignedZakazy(fin_doc = findoc_sign_2, zakaz_id=zakaz.id)
+            fin_doc_sign_zakaz.save()
+    elif zakaz.service_type.id in (9, ):
+        fin_doc_zakaz = FinDocSignedZakazy.objects.filter(fin_doc__findoc__slug='telematic_services_contract', zakaz_id = zakaz.id)
+        if not fin_doc_zakaz:
+            findoc_sign = FinDocSigned.objects.get(findoc__slug='telematic_services_contract', signed_by=profile_obj.user, cancellation_date=None)
+            fin_doc_sign_zakaz = FinDocSignedZakazy(fin_doc = findoc_sign, zakaz_id=zakaz.id)
+            fin_doc_sign_zakaz.save()
+print 'operation delete double objects'
+all_finzakazy = FinDocSignedZakazy.objects.all().order_by('id')
+j = 0
+for finzakaz in all_finzakazy:
+    j = j + 1
+    print '%s / %s' % (j, len(all_finzakazy))
+    finzakazy_queryset = FinDocSignedZakazy.objects.filter(fin_doc=finzakaz.fin_doc, zakaz_id=finzakaz.zakaz_id).exclude(id=finzakaz.id)
+    if finzakazy_queryset:
+        finzakazy_queryset.delete()
+print 'end'
+
+

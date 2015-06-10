@@ -1,0 +1,101 @@
+{% extends 'base_public.html' %}
+{% block extrahead %}
+
+   	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+    <!--link rel="stylesheet" href="{{ MEDIA_URL }}css/style_public_moscowdata.css">
+	<link rel="shortcut icon" href="{{ MEDIA_URL }}moscowdata/favicon.ico">
+	<link rel="stylesheet" href="{{ MEDIA_URL }}css/style_moscowdata.css">
+	<link rel="stylesheet" href="{{ MEDIA_URL }}css/modal_moscowdata.css">
+	
+	<script src="{{ MEDIA_URL }}js/jquery_public.js"></script>
+	<script src="{{ MEDIA_URL }}js/jquery.js"></script>
+	<script src="{{ MEDIA_URL }}js/html5_moscowdata.js"></script>
+	<script src="{{ MEDIA_URL }}js/script_moscowdata_forgot.js"></script-->
+    
+	<style>
+	.cols {
+	min-height: 390px;
+	}
+	.page-inner2{
+		background: none;
+	}
+	</style>
+	
+{% endblock %}
+                                    
+
+
+{% block content_homepage %}
+			
+			
+			
+
+					
+		    	    <img src="{{ MEDIA_URL }}pictures/sys.png" class="flt_img">
+					<span style="font-size: 25px;">Виртуальные сервера с
+					предустановленной 1С системой</span><br>
+					<span style="display: block; font-size: 16px; margin-top: 36px;">Мы предоставляем новую услугу на рынке современных 
+					технологий, «Аренда виртуального сервера 1С» 
+					для использования продуктов 1С предприятия.</span>
+					<div style="text-align: center">
+						<span style="display: block; margin-top: 25px; margin-left: auto;">ОПИСАНИЕ УСЛУГИ</span>
+					</div>
+					<span style="display: block; margin-top: 20px; margin-left: 12px;">
+					На серверах нашей компании выделяются мощности под виртуальные сервера с программой 
+					1С:предприятие. В зависимости от потребности арендуется необходимое количество удалённых
+					рабочих мест. По желанию клиента удалённое подключение к серверам возможно только с 
+					определённых мест (например, только с офиса вашей компании) или с любого места, 
+					где есть выход в интернет.</span>
+					<div style="text-align: center">
+						<span style="display: block; margin-top: 25px; margin-left: auto;">ПРЕИМУЩЕСТВА АРЕНДЫ СЕРВЕРА 1С</span>
+					</div>
+					<span style="display: block; margin-top: 20px; margin-left: 32px;">
+					<ol>
+						<li>Не требуется хранить базы 1С в офисе вашей компании. Все данные находятся в защищённой зоне
+							виртуального сервера;</li>
+						<li>Не требуется переплачивать за дорогостоящие сервера «про запас». 
+							Вы можете арендовать столько рабочих мест и мощностей сервера, сколько сейчас это необходимо 
+							компании;</li>
+						<li>Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod</li>
+						<li>tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam,</li>
+						<li>quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo</li>
+						<li>consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse</li>
+						<li>cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non</li>
+						<li>proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</li>
+					</ol>
+					</span>
+					<div class="contain_footer">
+						<label class="btn left" for="ac-2"><div>ДАЛЕЕ</div></label>
+						<!--[if lte IE 8]> 
+						<label class="btn left" for="ac-2" onclick="next('1')"><div>ДАЛЕЕ</div></label><![endif]-->
+					</div>
+		     
+		    
+
+
+
+
+
+
+
+
+
+
+
+<script>
+	$(document).ready(function(){
+		$( "#ac-1" ).prop( "checked", true );	
+	})
+	//alert('11');
+	//location.href = '/';
+	//$('#ac-1')
+	/*
+	alert('ac-1')
+	$( "#ac-1" ).prop( "checked", true );
+	$("#ac-2").prop( "checked", false );
+	$( "#ac-3" ).prop( "checked", false );
+	*/
+</script>
+
+{% endblock %}

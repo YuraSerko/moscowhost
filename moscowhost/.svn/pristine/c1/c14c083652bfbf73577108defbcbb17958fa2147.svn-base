@@ -1,0 +1,43 @@
+# -*-coding=utf-8-*-
+
+from django.db import models
+from billing.models import BillserviceAccount
+from django.conf import settings
+from billing.managers import BillingManager
+import datetime
+
+from payment.models import TYPE
+class Invoice_wm(models.Model):
+    type = models.IntegerField()
+    amount = models.DecimalField(default='0', max_digits=64, decimal_places=2)
+    currency = models.CharField(max_length=3, blank=True, null=True)
+    desc = models.CharField(max_length=64, blank=True, null=True)
+    payer_phone_number = models.CharField(max_length=15, blank=True, null=True)
+    payer_email = models.CharField(max_length=64, blank=True, null=True)
+    paid_amount = models.DecimalField(default='0', max_digits=64, decimal_places=2)
+    paid_currency = models.CharField(max_length=64, blank=True, null=True)
+    payment_system = models.CharField(max_length=64, blank=True, null=True)
+    sys_payment_id = models.IntegerField(blank=True, null=True)
+    sys_trans_date = models.DateTimeField(blank=True, null=True)
+    sim_mode = models.IntegerField(blank=True, null=True)
+    account = models.ForeignKey(BillserviceAccount, blank=True, null=True)
+    created = models.DateTimeField(blank=True, null=True)
+    transaction_id = models.IntegerField(blank=True, null=True)
+    end = models.BooleanField(default=False)
+    login = models.CharField(max_length=128, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        kwargs['using'] = settings.BILLING_DB
+        if not self.created:
+            self.created = datetime.datetime.now()
+        return super(Invoice_wm, self).save(*args, **kwargs)
+
+    class Meta:
+        # managed = False
+        db_table = "payments_wm2"
+#        ordering = ("tel_number",)
+        verbose_name = (u"Платёж Webmoney")
+        verbose_name_plural = (u"Платежи Webmoney")
+        app_label = "payment"
+
+    objects = BillingManager()

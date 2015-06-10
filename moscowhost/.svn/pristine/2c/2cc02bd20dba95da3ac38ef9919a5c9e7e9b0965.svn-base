@@ -1,0 +1,41 @@
+# -*- coding=utf-8 -*-
+from django.db import models
+# from billservice.models import Account
+from billing.models import BillserviceAccount
+from django.conf import settings
+from billing.managers import BillingManager
+import datetime
+
+from payment.models import TYPE
+class Invoice(models.Model):
+    # txn_id = models.CharField(max_length=64, blank=True, null=True)# qiwi transaction id
+    # account = models.ForeignKey(Account)
+    phone = models.CharField(max_length=15)
+    summ = models.DecimalField(decimal_places=2, max_digits=60)
+    # password = models.CharField(max_length=512)
+    # autoaccept = models.BooleanField(default=False)
+    created = models.DateTimeField(blank=True, null=True)
+    lifetime = models.IntegerField(blank=True, null=True)
+    check_after = models.IntegerField(blank=True, null=True)
+    accepted = models.BooleanField(default=False)
+    date_accepted = models.DateTimeField(blank=True, null=True)
+    deleted = models.BooleanField(default=False)
+    account = models.ForeignKey(BillserviceAccount)
+    login = models.CharField(max_length=15, blank=True, null=True)
+    type = models.IntegerField(blank=True, null=True)
+    email = models.EmailField(blank=True, null=True)
+    phone_sms = models.CharField(max_length=15, blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        kwargs['using'] = settings.BILLING_DB
+        if not self.created:
+            self.created = datetime.datetime.now()
+        return super(Invoice, self).save(*args, **kwargs)
+
+    class Meta:
+        db_table = "payments_qiwi"
+        verbose_name = "Платёж Qiwi"
+        verbose_name_plural = "Платежи Qiwi"
+        app_label = "payment"
+
+    objects = BillingManager()

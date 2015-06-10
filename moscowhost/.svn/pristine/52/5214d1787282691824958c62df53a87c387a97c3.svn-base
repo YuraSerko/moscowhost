@@ -1,0 +1,280 @@
+# -*- coding=UTF-8 -*-
+
+
+import os, sys
+import commands
+import paramiko
+from pyrad import dictionary
+from pyrad import packet
+import re
+import socket
+
+BILLING_PATH = '/home/sites/gh/globalhome/internet/'
+DICT = dictionary.Dictionary(os.path.join(BILLING_PATH, "dicts/dictionary"), os.path.join(BILLING_PATH, "dicts/dictionary.microsoft"), os.path.join(BILLING_PATH, 'dicts/dictionary.mikrotik') , os.path.join(BILLING_PATH, 'dicts/dictionary.cisco'))
+SSH_BACKEND = None
+
+def instance_dict(instance, key_format=None, normal_fields=False, fields=[]):
+    """
+    Returns a dictionary containing field names and values for the given
+    instance
+    """
+    from django.db.models.fields import DateField, DecimalField
+    from django.db.models.fields.related import ForeignKey
+    if key_format:
+        assert '%s' in key_format, 'key_format must contain a %s'
+    key = lambda key: key_format and key_format % key or key
+
+    pk = instance._get_pk_val()
+    d = {}
+    for field in instance._meta.fields:
+
+        attr = field.name
+
+        if fields and attr not in fields: continue
+        # print attr
+        try:
+            value = getattr(instance, attr)
+        except:
+            value = None
+
+        if isinstance(field, ForeignKey):
+            if value is not None:
+                try:
+                    d["%s_id" % key(attr)] = value.id
+                    value = value._get_pk_val() if normal_fields == False else unicode(value)
+                except Exception, e:
+                    print e
+            else:
+                d["%s_id" % key(attr)] = None
+                value = None
+
+            # elif isinstance(field, DateField):
+            #    value = value.strftime('%Y-%m-%d %H:%M:%S')
+        elif isinstance(field, DecimalField):
+            value = float(value) if value else 0
+
+        d[key(attr)] = value
+    for field in instance._meta.many_to_many:
+        if pk:
+            d[key(field.name)] = [
+                obj._get_pk_val()
+                for obj in getattr(instance, field.attname).all()]
+        else:
+            d[key(field.name)] = []
+    return d
+
+cs_pattern = re.compile('\$[_\w]+')
+def command_string_parser(command_string='', command_dict={}):
+    """
+    
+    """
+    if command_string == None:
+        return ''
+    import re
+    if len(command_string) == 0 or len(command_dict) == 0:
+        return ''
+
+    match = cs_pattern.finditer(command_string)
+    if match is None:
+        return ''
+    params = [m.group()[1:] for m in match]
+    for p in params :
+        if p in command_dict.keys() :
+            cs_str = re.compile('\$%s' % p)
+            command_string = cs_str.sub(unicode(command_dict[p]), command_string)
+    # print command_string
+    return command_string
+
+def ssh_client(host, username, password, command, logger):
+    if not SSH_BACKEND:
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        ssh.connect(host, username=username, password=password, allow_agent=False, look_for_keys=False)
+        logger.debug("NAS Manipulation command string %s" % (command,))
+        stdin, stdout, stderr = ssh.exec_command(command)
+        out = stdout.readlines()
+        err = stderr.readlines()
+        ssh.close()
+        return err == []
+    else:
+        command_string = command_string_parser(command_string=SSH_BACKEND, command_dict=
+                            {'host': host, 'username': username, 'password': password,
+                             'command': command})
+        logger.debug("NAS Manipulation command string %s", (command_string,))
+        status, output = commands.getstatusoutput(command_string)
+        logger.debug("NAS Manipulation try status=%s output=%s", (status, output))
+        return output, status == 0
+
+
+
+
+
+def PoD(account, subacc, nas, access_type, session_id='', vpn_ip_address='', caller_id='', nas_port_id='', format_string='', cb=None):
+    """
+    @param account_id: ID of account
+    @param account_name: name of account
+    @param account_vpn_ip: VPN Address
+    @param account_ipn_ip: IPN Address
+    @param account_mac_address: Hardware address of account computer  
+    @param nas_ip: IP address of NAS
+    @param nas_name: Network Identify NAS
+    @param nas_secret: Secret phrase
+    @param nas_login: Login for SSH
+    @param nas_password: Password for SSH
+    @param session_id: ID of VPN session
+    @param format_string: format string       
+    """
+    # log_debug_('PoD args: %s' % str([account_id, account_name, account_vpn_ip, account_ipn_ip, account_mac_address, access_type, nas_ip, nas_type, nas_name, nas_secret, nas_login, nas_password, session_id, format_string]))
+    logger = logging.basicConfig(filename='workers_pod.log', level=logging.INFO)
+    # logging.basicConfig(level=logging.DEBUG)
+    logger = logging
+    access_type = access_type.lower()
+    if (nas.get('speed_value1') or nas.get('speed_value2')) and ((format_string == '' and access_type in ['pptp', 'l2tp', 'pppoe', 'lisg', 'accel-ipoe', 'accel-ipoe-l3']) or access_type == 'hotspot' or nas.get('type') == 'cisco'):
+        logger.info("Send PoD")
+        conn = get_connection()
+        cur = conn.cursor()
+        if account.get('account_id'):
+            uid = account.get('account_id')
+        else:
+            uid = account.get('id')
+
+        cur.execute("""
+            SELECT ap.access_type FROM billservice_account as a
+            JOIN billservice_tariff as t ON t.id=get_tarif(a.id)
+            JOIN billservice_accessparameters as ap ON ap.id=t.access_parameters_id
+            WHERE a.id=%s
+        """, (uid,))
+        conn.commit()
+        tariff_access_type = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(20)
+        sock.bind(('0.0.0.0', 0))
+        doc = packet.AcctPacket(code=40, secret=str(nas.get('secret')), dict=DICT)
+        doc.AddAttribute('NAS-IP-Address', str(nas.get('ipaddress')))
+        if nas.get('type') != 'cisco' and nas.get('identify'):
+            doc.AddAttribute('NAS-Identifier', str(nas.get('identify')))
+
+        if access_type in ['lisg', 'accel-ipoe', 'accel-ipoe-l3']:
+            doc.AddAttribute('User-Name', str(subacc.get('ipn_ip_address')).replace('/32', ''))
+        elif subacc.get('username') and tariff_access_type not in ['HotSpotIp+Mac', 'HotSpotIp+Password', 'HotSpotMac', 'HotSpotMac+Password']:
+            doc.AddAttribute('User-Name', unicode(subacc.get('username')))
+
+        if nas.get('type') == 'cisco':
+            logger.info("Normalization cisco session id")
+            doc.AddAttribute('Acct-Session-Id', re.sub('^0+', '', str(session_id)))
+        else:
+            doc.AddAttribute('Acct-Session-Id', str(session_id))
+
+        if access_type == 'hotspot' and vpn_ip_address and  tariff_access_type not in [ 'HotSpotMac', ]:
+            doc.AddAttribute('Framed-IP-Address', str(vpn_ip_address))
+        elif access_type not in ('hotspot', 'lisg') and vpn_ip_address:
+            doc.AddAttribute('Framed-IP-Address', str(vpn_ip_address))
+
+        if caller_id and nas.get('type') != 'cisco' :
+            doc.AddAttribute('Calling-Station-Id', str(caller_id))
+
+        doc_data = doc.RequestPacket()
+        sock.sendto(doc_data, (str(nas.get('ipaddress')), 1700))
+        (data, addrport) = sock.recvfrom(8192)
+        doc = packet.AcctPacket(secret=str(nas.get('secret')), dict=DICT, packet=data)
+        sock.close()
+
+        if cb:
+            cb.apply()
+        return doc.get("Error-Cause")
+    elif format_string != '' and access_type in ['pptp', 'l2tp', 'pppoe']:
+        # ssh
+
+        logger.info('POD ROS')
+
+        command_dict = {'access_type': access_type, 'session': session_id, 'nas_port_id': nas_port_id}
+
+        for x in nas.keys():
+
+            command_dict.update({
+                          'nas_%s' % x: unicode(nas[x]),
+                           })
+
+        for x in account.keys():
+            command_dict.update({
+                          'acc_%s' % x: unicode(account[x]),
+                           })
+        if subacc:
+            for x in subacc.keys():
+
+                command_dict.update({
+                              'subacc_%s' % x: unicode(subacc[x]),
+                               })
+        command_dict.update({'framed_ip_address': vpn_ip_address})
+        command_string = command_string_parser(command_string=format_string, command_dict=command_dict)
+
+        try:
+            output = ''
+            if nas.get('type') != 'localhost':
+                sshclient = ssh_client(host=nas.get('ipaddress'), username=nas.get('login'), password='t,ccciukj,fk^&*', command=command_string, logger=logger)
+                logger.info('ssh connected')
+                del sshclient
+            elif nas.get('type') == 'localhost':
+                status, output = commands.getstatusoutput(command_string)
+                logger.info('Local command %s was executed with status %s and output %s' % (command_string, status, output))
+                if status != 0:return False
+
+            if cb:
+                cb.apply()
+            logger.info('POD SSH')
+            return True
+        except Exception, e:
+            logger.error('PoD SSH exception: %s' % repr(e))
+            return False
+
+
+if __name__ == '__main__':
+    try:
+        sess_id = sys.argv[1]
+    except:
+        exit(u'Не казан id сессии')
+    print 'tut'
+    import logging
+
+    sys.path.append('../../')
+    sys.path.append('../')
+    sys.path[0] = '../'
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+    from settings import DATABASES
+    from hotspot.models import Nas
+    from billing.models import BillserviceAccount, BillserviceSubAccount
+    from internet.billing_models import ActiveSession
+    import psycopg2
+
+    DSN = "dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing']
+    def get_connection():
+        conn = psycopg2.connect(DSN)
+        conn.set_client_encoding('UTF8')
+        conn.set_isolation_level(0)
+        return conn
+
+
+    account_name = 'GlobalHome'
+    account_vpn_ip = ''
+    account_ipn_ip = ''
+    account_mac_address = '12:12:12:12:12'
+    nas_ip = '176.124.137.220'
+    nas_name = 'GH1'
+    nas_secret = ''
+    nas_login = 'ebs'
+    nas_password = ''
+    session_id = ''
+    format_string = ''
+
+    session = ActiveSession.objects.get(id=1000)
+    n = session.nas_int
+    nas = instance_dict(n)
+    acc = instance_dict(session.account)
+    subacc = instance_dict(session.subaccount)
+    print 'tut'
+    res = PoD(acc, subacc, nas, access_type=session.framed_protocol, session_id=str(session.sessionid), vpn_ip_address=session.framed_ip_address, caller_id=str(session.caller_id), format_string=str(n.reset_action))
+    print 'tut'

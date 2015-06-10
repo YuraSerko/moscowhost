@@ -1,0 +1,358 @@
+# -*-coding=utf-8-*-
+
+from django.http import Http404, HttpResponse, HttpResponseRedirect
+from lib.decorators import render_to, login_required
+# from payment.webmoney.forms import WebmoneyPaymentRequestForm, WebmoneyPaymentRequestFormCard
+from payment.webmoney.models import Invoice_wm
+from payment.webmoney.forms import WMPaymentRequestFormCard
+from payment import settings as payment_settings
+from payment.models import Billservice_transaction
+import log
+from django.utils.translation import ugettext as _
+from django.shortcuts import render_to_response
+import base64
+import datetime, time, decimal
+import hashlib
+from page.views import panel_base_auth
+from payment.forms import webmoney_money
+from lib.mail import send_email
+from django.template import Template, Context
+from django.conf import settings
+from django.shortcuts import render
+
+
+@login_required
+@render_to("wm_payment.html")
+def payment_wm(request):
+    "Отображает интерфейс для оплаты вебманями"
+    profile = request.user.get_profile()
+
+    if profile.is_juridical:
+        raise Http404
+    user = request.user
+    context = {}
+    form = webmoney_money()
+    if request.POST: # после submit и form в context больше не передается
+        form = webmoney_money(request.POST)
+        if form.is_valid():
+            try:
+                profile = user.get_profile()
+                inv = Invoice_wm()
+                inv.amount = form.cleaned_data['money']
+                inv.desc = _(u"Пополнение счета через WebMoney")
+                inv.account = profile.billing_account
+                inv.currency = 'RUB'
+                inv.type = 1
+                # inv.payer_phone_number = request.POST.get("LMI_PAYER_PHONE_NUMBER", "")
+                inv.payer_email = request.POST.get("LMI_PAYER_EMAIL", "")
+                inv.save()
+
+                context["merchant_id"] = payment_settings.WM_MERCHANT_ID
+                context["amount"] = inv.amount
+                context["currency"] = inv.currency
+                context["payment_id"] = inv.id  # наш внутренний номер платежа
+                context["payment_name"] = inv.desc  # название платежа
+                context["payment_name_base64"] = base64.standard_b64encode(inv.desc.encode('utf-8'))  # название платежа в base64 в (utf-8!!!)
+                context["sim_mode"] = payment_settings.WM_SIM_MODE
+                # context["payer_phone_number"] = inv.payer_phone_number # номер телефона пользователя
+                context["payer_email"] = inv.payer_email  # почта пользователя
+                context["account_id"] = inv.account.id  # id пользователя в биллинге
+                context["type"] = inv.type  # тип платежа
+                return context
+            except Exception, e:
+                log.add(u"payment_wm_start Except: %s" % e)
+                raise Http404
+        else:
+            context['form'] = form
+            request.notifications.add(u"Ошибка в заполнении полей", "error")
+            return context
+    else:
+        context['form'] = form #если нет post данных та передаем form
+    return context
+
+
+
+
+
+@render_to("wm_card.html")
+def payment_wm_card_start(request):
+    "Создает новый платеж и редиректит на страницу оплаты вебманями"
+    context = {}
+    context['hide_review'] = True
+    if request.method == 'GET':
+#        if (not request.GET.has_key('amount')
+#            or request.GET.get('amount') not in (u'50', u'100', u'150')):
+#            raise Http404
+        # context['amount'] = request.GET.get('amount')
+        context['meta_title'] = u'Покупка карты Webmoney %s' % request.GET.get('amount')
+        form = WMPaymentRequestFormCard()
+        context['wm_form'] = form
+        # return render_to_response('wm_card.html', context)
+        return panel_base_auth(request, context)
+
+    if request.method == 'POST':
+        form = WMPaymentRequestFormCard(request.POST.copy())
+        context['wm_form'] = form
+        if not form.is_valid():
+            request.notifications.add(u"Ошибка в заполнении полей", "error")
+            # return render_to_response('wm_card.html', context)
+            return panel_base_auth(request, context)
+        email = form.cleaned_data.get('email', '')
+        phone_sms = form.cleaned_data.get('phone_sms', '')
+        amount = form.cleaned_data.get('amount')
+        if not email and not phone_sms:
+            request.notifications.add(u"Вам необходимо указать адрес электронной почты или номер мобильного телефона", "error")
+            # return render_to_response('wm_card.html', context)
+            return panel_base_auth(request, context)
+
+        context = {}
+        context['hide_review'] = True
+        #context['site'] = settings.CURRENT_SITE
+        try:
+            # amount = request.GET.get('amount')
+            inv = Invoice_wm()
+            inv.amount = amount
+            inv.desc = _(u"Покупка карты предоплаты %s" % amount)
+            inv.currency = 'RUB'
+            inv.type = 2
+            inv.payer_phone_number = phone_sms
+            inv.payer_email = email
+            inv.save()
+
+            context["merchant_id"] = payment_settings.WM_MERCHANT_ID
+            context["amount"] = inv.amount
+            context["currency"] = inv.currency
+            context["payment_id"] = inv.id  # наш внутренний номер платежа
+            context["payment_name"] = inv.desc  # название платежа
+            context["payment_name_base64"] = base64.standard_b64encode(inv.desc.encode('utf-8'))  # название платежа в base64 в (utf-8!!!)
+            context["sim_mode"] = payment_settings.WM_SIM_MODE
+            context["payer_phone_number"] = inv.payer_phone_number  # номер телефона пользователя
+            context["payer_email"] = inv.payer_email  # почта пользователя
+            context["account_id"] = ""  # id пользователя в биллинге
+            context["type"] = inv.type  # тип платежа
+            return panel_base_auth(request, context)
+        except Exception, e:
+            log.add(u"payment_wm_start Except: %s" % e)
+            return {}
+    else:
+        raise Http404
+
+
+
+@login_required
+@render_to("payment_end.html")
+def payment_wm_success(request):
+    "Страница, на которую прийдет запрос об успешном завершении перевода вебманей"
+    context = {}
+    context['hide_review'] = True
+    context['title'] = u'Уведомление об успешном пополнении счета'
+    request.notifications.add(u'Оплата успешно произведена, спасибо!', 'success')
+    return context
+
+
+@login_required
+@render_to("payment_end.html")
+def payment_wm_error(request):
+    "Страница, на которую прийдет запрос о неудачном завершении операции с вебманями"
+    context = {}
+    context['title'] = u'Уведомление о неудачном пополнении счета'
+    request.notifications.add(u'Оплата не была произведена.', 'error')
+    return context
+
+
+def payment_wm_process(request):
+    "Страница, на которую прийдет запрос о совершении платежа"
+    if not request.POST:  # Если нет POST данных генерируем ошибку
+        log.add("1 payment_wm_process POST: None")
+        raise Http404
+
+    log.add("2 payment_wm_process POST: '%s'" % (repr(request.POST)))
+
+    class WMError(Exception): pass
+
+    try:
+        prerequest = request.POST.get("LMI_PREREQUEST", "")
+        merchant_id = request.POST.get("LMI_MERCHANT_ID", "")
+        payment_no = request.POST.get("LMI_PAYMENT_NO", "")
+        payment_amount = request.POST.get("LMI_PAYMENT_AMOUNT", "")
+        currency = request.POST.get("LMI_CURRENCY", "")
+        paid_amount = request.POST.get("LMI_PAID_AMOUNT", "")
+        paid_currency = request.POST.get("LMI_PAID_CURRENCY", "")
+        payment_system = request.POST.get("LMI_PAYMENT_SYSTEM", "")
+        sim_mode = request.POST.get("LMI_SIM_MODE", "")
+        payment_desc = request.POST.get("LMI_PAYMENT_DESC", "")
+        id = request.POST.get("LMI_PAYMENT_NO", "")
+        lmi_hash = request.POST.get(u"LMI_HASH", "")
+        sys_payment_id = request.POST.get(u"LMI_SYS_PAYMENT_ID", "")
+        sys_payment_date = request.POST.get(u"LMI_SYS_PAYMENT_DATE", "")
+        payer_phone_number = request.POST.get(u"LMI_PAYER_PHONE_NUMBER", "")
+        payer_email = request.POST.get(u"LMI_PAYER_EMAIL", "")
+        payment_type = request.POST.get("type", "")
+        account_id = request.POST.get("account_id", "")
+        """Проверяем запрашивали ли мы такой платеж"""
+        try:
+            inv = Invoice_wm.objects.get(id=id)
+        except Invoice_wm.DoesNotExist:
+            raise WMError(u"Запрос платежа с указанным id не найден")
+        if inv.end:
+            raise WMError(u"Платеж с таким номером уже существует")
+
+        if merchant_id != payment_settings.WM_MERCHANT_ID:
+            raise WMError(u"Получен не верный ID продавца")
+
+        if decimal.Decimal(payment_amount) != inv.amount:
+            raise WMError(u"Получена не верная сумма оплаты")
+
+        if payment_type != str(inv.type):
+            raise WMError(u"Получен ошибочный тип платежа")
+
+        if account_id != str(inv.account_id if inv.account_id else ""):
+            log.add(u"account_id=%s inv.account_id=%s" % (account_id, str(inv.account_id if inv.account_id else "")))
+            raise WMError(u"Получен не верный номер аккаунта")
+
+
+#        if payer_phone_number != inv.payer_phone_number:
+#            raise WMError(u"Получен не верный номер телефона плательщика")
+#        if payer_phone_email != inv.payer_email:
+#            raise WMError(u"Получен не верный email плательщика")
+
+        if prerequest == u'1' or prerequest == u'2':
+            log.add("3 payment_wm_process prerequest")
+            return HttpResponse(u"YES")
+        """Проверяем подпись запроса"""
+        try:
+            pre_hash = (merchant_id,
+                        payment_no,
+                        sys_payment_id,
+                        sys_payment_date,
+                        payment_amount,
+                        currency,
+                        paid_amount,
+                        paid_currency,
+                        payment_system,
+                        sim_mode,
+                        payment_settings.WM_PASSPHRASE,
+                        )
+            pre_hash_str = ";".join(pre_hash)
+            key = hashlib.md5()
+            key.update(pre_hash_str)
+            hash = base64.standard_b64encode(key.digest())
+            # log.add(hash)
+        except Exception, e:
+            raise WMError(u"Ошибка при подсчете hash: %s" % str(e))
+        if lmi_hash != hash:
+            raise WMError(u"Получен не верный hash")
+
+        if payment_type == u'1':  # Пополнение счета
+            try:
+                log.add(u"payment_wm type=1")
+                # Сохраняем информацию по платежу в БД
+                inv.paid_amount = paid_amount
+                inv.paid_currency = paid_currency
+                inv.payment_system = payment_system
+                inv.sim_mode = int(sim_mode if sim_mode else "0")
+                date = datetime.datetime(*time.strptime(sys_payment_date, "%Y-%m-%dT%H:%M:%S")[0:5])
+                inv.sys_trans_date = date
+                inv.sys_payment_id = sys_payment_id
+                inv.end = True
+                inv.payer_phone_number = payer_phone_number
+                inv.payer_email = payer_email
+                # inv.save()
+
+                # Создаем транзакцию на пополнение счета
+                trn = Billservice_transaction()
+                trn.bill = inv.desc
+                trn.account = inv.account
+                trn.type_id = 'WEBMONEY_PAYMENT'
+                trn.approved = True
+                trn.tarif_id = 0
+                trn.summ = inv.amount
+                trn.description = inv.desc
+                trn.save()
+
+                trn_new = Billservice_transaction.objects.get(bill=trn.bill,
+                                                               account=trn.account,
+                                                               type_id=trn.type_id,
+                                                               approved=trn.approved,
+                                                               tarif_id=trn.tarif_id,
+                                                               summ=trn.summ,
+                                                               description=trn.description,
+                                                               created=trn.created,
+                                                               )
+                inv.transaction_id = trn_new.id
+                inv.save()
+                log.add(u"payment_wm Success!!")
+                return HttpResponse(u"OK")
+            except Exception, e:
+                log.add(u"payment_wm Except: %s" % e)
+                raise WMError(u"Ошибка записи в БД")
+
+        elif payment_type == u'2':  # Карты предоплаты
+            log.add("payment_wm type=2")
+            try:
+                if not payment_settings.TEST_WM:
+                    """Получаем логин и пароль для карты доступа на указанную сумму"""
+                    # login, password = get_card2(float(inv.amount), WM_DEALER_ID)
+                    from cards.models import BillserviceCard
+                    card = BillserviceCard.generate_card(float(inv.amount), '1')
+                    login, password = card.login, card.pin
+                    log.add(u"payment_wm login=%s password=%s" % (login, password))
+                else:
+                    login = password = '111'
+
+            except Exception, e:
+                log.add(u"payment_wm Except: %s" % e)
+                raise WMError(u"Ошибка получения логина, пароля для карты")
+
+            if not payment_settings.TEST_WM:
+                if inv.payer_phone_number:
+                    try:
+                        num = inv.payer_phone_number if len(inv.payer_phone_number) == 11 else '7' + inv.payer_phone_number
+                        from lib.sms import send_sms
+                        r = send_sms(num, payment_settings.SMS_TXT % (login, password), log=log)
+                        if not r:
+                            raise WMError(u'Ошибка отправки логина и пароля карты на указанный номер')
+                    except Exception, e:
+                        log.add(u"payment_wm Except: %s" % e)
+                        raise WMError(u'Ошибка отправки логина и пароля карты')
+            if inv.payer_email:
+                mail_context = {'summ' : inv.amount,
+                                'password': password,
+                                'login': login}
+                subject = Template(payment_settings.MAIL_SUBJECT).render(Context(mail_context))
+                text = Template(payment_settings.MAIL_TEXT).render(Context(mail_context))
+                send_email(subject, text, settings.DEFAULT_FROM_EMAIL, [inv.payer_email])
+                log.add(u'payment_wm Email succesfully send')
+            try:
+                # Сохраняем информацию по платежу в БД
+                inv.paid_amount = paid_amount
+                inv.paid_currency = paid_currency
+                inv.payment_system = payment_system
+                inv.sim_mode = int(sim_mode if sim_mode else "0")
+                date = datetime.datetime(*time.strptime(sys_payment_date, "%Y-%m-%dT%H:%M:%S")[0:5])
+                inv.sys_trans_date = date
+                inv.sys_payment_id = sys_payment_id
+                inv.end = True
+                inv.login = login
+                # inv.payer_phone_number = payer_phone_number
+                # inv.payer_email = payer_email
+                inv.save()
+
+            except Exception, e:
+                log.add(u"payment_wm Except: %s" % e)
+                raise WMError(u"Ошибка записи в БД")
+            log.add(u"payment_wm Success!!")
+            return HttpResponse(u"OK")
+        else:
+            raise WMError(u"Неизвестный тип платежа")
+
+    except WMError, e:
+        log.add(u"98payment_wm Error: %s" % e)
+        return HttpResponse(e)
+
+
+    except Exception, e:
+        log.add(u"99payment_wm Error: %s" % e)
+        raise Http404
+
+

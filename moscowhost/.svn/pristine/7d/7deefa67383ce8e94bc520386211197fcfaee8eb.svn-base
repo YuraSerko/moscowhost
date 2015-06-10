@@ -1,0 +1,536 @@
+# coding: utf-8
+
+import sys, os
+
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from hotspot.models import Video
+from hotspot.models import VideoGenre
+import datetime
+import traceback
+import urllib2, urllib, cookielib
+import time
+from BeautifulSoup import BeautifulSoup
+import re
+import trans
+import logging
+from grab import Grab
+from ghost import Ghost
+import PySide
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+import tempfile
+from subprocess import Popen
+from pyvirtualdisplay import Display
+
+
+class FilmUpdater():
+    def adres(self, browser, adress):
+        browser.get(adress)
+        time.sleep(5)
+        res = browser.page_source
+        browser.close()
+        time.sleep(5)
+        return res
+
+    def update(self):
+        self.__adres()
+
+class XvfbManager():
+    display = Display(visible=0, size=(1024, 768))
+    def start(self):
+        tempdir = tempfile.mkdtemp()
+        self.process = Popen(['Xvfb', ':1', '-nolisten', 'tcp', '-fbdir', tempdir]) # Раскомментить для линукса
+        os.environ['DISPLAY'] = ':1'
+    def stop(self):
+        if self.process is not None:
+            self.process.terminate()
+            self.process.wait()
+            self.process = None
+
+
+class FirefoxManager():
+    __firefox = None
+    def firefox(self):
+        if not self.__firefox:
+            self.__firefox = webdriver.Firefox()
+            self.__firefox.implicitly_wait(10)
+            return self.__firefox
+    def close(self):
+        self.__firefox.close()
+        self.__firefox = None
+
+
+print 'begin ' + str(datetime.datetime.now())
+
+def translit(title, orig_title):
+    # print type(title)
+    if title:
+        # print type(title)
+        translit_video_name = unicode(title).lower().encode('trans')
+    else:
+        translit_video_name = unicode(orig_title).lower().encode('trans')
+    return translit_video_name.replace(' ', '').replace(',', '').replace('-', '').replace(':', '').replace('!', '').replace(u'—', '').replace('.', '').replace('(', '').replace(')', '').replace('?', '')
+
+
+def base_save(orig_title, title, paramd, video_type, genres_list, serial=False):
+    try:
+        # print title
+        title = title.encode('utf-8').strip()
+        orig_title = orig_title.strip()
+        paramd["orig_title"] = paramd["orig_title"].strip()
+        paramd["title"] = paramd["title"].strip()
+
+        if orig_title:
+            vname_exist = Video.objects.get(orig_title__exact=orig_title.encode('utf-8'))  # не совпадает оригинальное название и год
+        else:
+            vname_exist = Video.objects.get(title__exact=title)
+        print u'Видео: ' + orig_title + '|' + paramd["title"] + u' - уже есть в базе данных.'
+    except Video.DoesNotExist:
+        try:  # Создание уникального поля ranslit_video_name
+            translit_name = translit(paramd["title"], paramd["orig_title"])
+            ob = Video.objects.filter(translit_video_name__exact=translit_name.strip())
+            ob2 = Video.objects.filter(translit_video_name__exact=translit_name.strip() + '_' + '2')
+            ob3 = Video.objects.filter(translit_video_name__exact=translit_name.strip() + '_' + '3')
+            if ob.count() == 1 and not ob2:
+                print "There are 1  same name"
+                n = '2'
+                print 'rename field translit_video_name of 2 object... adding number _2 to the end '
+                paramd['translit_video_name'] = str(translit_name) + '_' + n
+            elif ob.count() == 1 and ob2:
+                n = '3'
+                print 'rename field translit_video_name of 3 object... adding number _3 to the end '
+                paramd['translit_video_name'] = str(translit_name) + '_' + n
+            if ob3:
+                mes = u"Копий поля translit_video_name больше 3-х экземпляров в базе данных."
+                print mes
+                send_email('Копии поля translit_video_name', mes, settings.DEFAULT_FROM_EMAIL, ["Zz1n@globalhome.su", 'sales@globalhome.su', 'noc@globalhome.su'])
+            v = Video(source=2, orig_title=paramd["orig_title"], title=paramd["title"],
+                       genres_client_view=paramd["genres_client_view"],
+                       video_type=video_type, player_video_url=paramd["player_video_url"],
+                       image_link=paramd["image_link"], premiere_date=paramd["premiere_date"],
+                       description=paramd["description"],
+                       quality=paramd["quality"],
+                       sound=paramd["sound"],
+                       director=paramd["director"],
+                       cast=paramd["cast"],
+                       time=paramd["time"],
+                       budget=paramd["budget"],
+                       age_restrictions=paramd["age_restrictions"],
+                       screenplay=paramd["screenplay"],
+                       label_text=paramd['label_text'],
+                       one_serial_links=paramd['one_serial_links'],
+                       date_aded=datetime.datetime.now(),
+                       translit_video_name=paramd['translit_video_name'],
+                       year=paramd['year'],
+                       country=paramd['country'],
+                       # ,rating = 4
+                      )
+
+            v.save()
+            for gl in genres_list:
+                # print gl
+                vg = VideoGenre(id=gl)
+                # print vg
+                v.genres.add(vg)
+            # sys.exit()
+            v.save()
+
+            print u"Видео: " + paramd["orig_title"] + u'|', paramd["title"] + u' успешно добавлено'
+            if serial:
+                return 1
+        except Exception, e:
+            print traceback.print_exc()
+
+    except Exception, e:
+        print e
+        if serial:
+            print "serial save"
+            return 1
+        else:
+            pass
+
+
+def Parse_one_page(adres):
+    # time.sleep(25)
+    ymka_genre = { 1:u"боевик", 2:u"военн", 3:u"детектив",
+                   4:u"драм", 5:u"истори", 6:u"комеди", 7:u"мелодрам",
+                   8:u"мистика", 9:u"приключен", 10:u"триллер", 11:u"ужасы",
+                   12:u"фантасти", 13:u"вестерн", 14:u"биограф",
+                   15:u"катастроф", 16:u"криминал",
+                   17:u"спорт", 18:u"фэнтэзи", 19:u'артхаус', 20:u'семейный', 21:u'документальный'}  # 13:u"эротика", , 21:u"сказка" 18:u"музыка",
+
+    #===========================================================================
+    # gidonline_genre = { 1:"боевик", 2:"военный", 3:"детектив",
+    #                 4:"драма", 5:"история", 6:"комедия", 7:"мелодрама",
+    #                 8:"мистика", 9:"приключения", 10:"триллер", 11:"ужасы",
+    #                 12:"фантастика", 13:"вестерн", 14:"биография",
+    #                 15:"катастрофа", 16:"криминал",
+    #                 17:"спорт", 18:"фэнтэзи"}
+    #===========================================================================
+    params_match = {u"видео":u"orig_title", u"название":u"title", u"год":u"year", u"страна":u"country",
+                    u"Премьера": u"premiere_date", u"жанр":u"genres_client_view", u"Качество":u"quality",
+                    u"Звук":u"sound", u"Режиссер":"director", u"режиссер":"director", u"в главных ролях":u"cast", u"просмотр":u"time",
+                    u"Бюджет":u"budget", u"Ограничения":u"age_restrictions",
+                    u"Сценарий":u"screenplay"
+                    }
+
+
+    video_type = 1
+
+    try:
+        res = urllib.urlopen(adres).read()
+        soup = BeautifulSoup(str(res))
+    except Exception, e:
+            print traceback.print_exc()
+            print "Произошел дисконнект при поиске фильма, пожалуйста подождите..."
+            time.sleep(7)
+            return 1 # Раскомментить
+    for link in soup.findAll("a", {"class":"mainlink"}):
+        paramd = {}
+        paramd["player_video_url"] = ""
+        paramd["orig_title"] = ""
+        paramd["title"] = ""
+        paramd["premiere_date"] = ""
+        paramd["genres_client_view"] = ""
+        paramd["quality"] = ""
+        paramd["sound"] = ""
+        paramd["director"] = ""
+        paramd["cast"] = ""
+        paramd["time"] = ""
+        paramd["budget"] = ""
+        paramd["age_restrictions"] = ""
+        paramd["screenplay"] = ""
+        paramd["year"] = ""
+        paramd['label_text'] = ''
+        paramd['one_serial_links'] = ''
+        paramd['translit_video_name'] = ''
+        paramd['country'] = ''
+        # paramd["genre"] = ""
+        # paramd["cast"] = ""
+        # paramd["time"] = ""
+        time.sleep(7)
+        ADRESS_one_video = link.get("href")
+        # print ADRESS_one_video
+        # Парсинг одной страницы
+        #ADRESS_one_video = 'http://gidonlinekino.com/2013/04/transformery-1986/'
+        time.sleep(3)
+        xvfb = XvfbManager()
+        xvfb.start()
+        ff_manager = FirefoxManager()
+        source = FilmUpdater().adres(ff_manager.firefox(), ADRESS_one_video)
+        xvfb.stop()
+        time.sleep(2)
+        try:
+            
+            one_video_html = BeautifulSoup(source)
+        except Exception, e:
+            print e
+        try:
+            for f in one_video_html.findAll("iframe"):
+                # print f.get("src").find('vk')
+                if (f.get("src").find('vk') != -1):  # not(got_video) and
+                    urlstr = f.get("src")
+                    urlstr = str(urlstr)
+                    # paramd["player_video_url"] = str(urlstr).replace('amp;', '')  # param13 #
+                    # Если фильм содержит 2 части т.е. 2 видео
+                    if paramd["player_video_url"] == '':
+                        paramd["player_video_url"] = str(urlstr).replace('amp;', '').strip()
+                    else:
+                        paramd["player_video_url"] = str(paramd["player_video_url"]).strip() + ',' + str(urlstr).replace('amp;', '').strip()
+                    # got_video = True
+
+            if paramd["player_video_url"] == "":
+                pass
+        except Exception, e:
+            print traceback.print_exc()
+            continue
+            # return 1
+
+        orig_title = ''
+        title = ''
+        try:
+            for param in one_video_html.find("div", {"class":"t-row"}).findAll("div", {'class':'rl-1'}):
+                # print param.text
+                for k in params_match.keys():
+                    if param.text == k:
+                        if param and param.nextSibling:
+                            if param.nextSibling.find('a'):
+                                try:
+                                    param.nextSibling.findAll('a')[1].contents[0]
+
+                                    for name in param.nextSibling.findAll('a'):
+                                        if paramd[params_match[k]] == '':
+                                            paramd[params_match[k]] = name.renderContents().decode('utf-8')
+                                        else:
+                                            paramd[params_match[k]] = paramd[params_match[k]] + ', ' + name.renderContents().decode('utf-8')
+                                except:
+                                    paramd[params_match[k]] = param.nextSibling.find('a').contents[0]
+                            else:
+                                paramd[params_match[k]] = param.nextSibling.contents[0]
+                            #===================================================
+                            # if param.text == u'год':
+                            #     paramd[params_match[k]] = param.nextSibling.find('a').contents[0]
+                            # elif param.text == u'страна' or param.text == u'в главных ролях' or param.text == u'жанр':
+                            #     try:
+                            #         param.nextSibling.findAll('a')[1].contents[0]
+                            #
+                            #         for name in param.nextSibling.findAll('a'):
+                            #             if paramd[params_match[k]] == '':
+                            #                 paramd[params_match[k]] = name.renderContents().decode('utf-8')
+                            #             else:
+                            #                 paramd[params_match[k]] = paramd[params_match[k]]+', '+name.renderContents().decode('utf-8')
+                            #     except:
+                            #         paramd[params_match[k]] = param.nextSibling.find('a').contents[0]
+                            #===================================================
+                            #===================================================
+                            # elif param.text == u'в главных ролях':
+                            #     try:
+                            #         param.nextSibling.findAll('a')[1].contents[0]
+                            #         for name in param.nextSibling.findAll('a'):
+                            #             if paramd[params_match[k]] == '':
+                            #                 paramd[params_match[k]] = name.renderContents()
+                            #             else:
+                            #                 paramd[params_match[k]] = paramd[params_match[k]]+', '+name.renderContents()
+                            #     except:
+                            #         paramd[params_match[k]] = param.nextSibling.find('a').contents[0]
+                            #===================================================
+                            #===================================================
+                            # elif param.text == u'жанр':
+                            #     genres_string = param.nextSibling.renderContents()
+                            #===================================================
+                            #===================================================
+                            # else:
+                            #     paramd[params_match[k]] = param.nextSibling.renderContents().decode('utf-8')
+                            #===================================================
+
+        except Exception, e:
+            print traceback.print_exc()
+            continue
+            # return 1
+        #=======================================================================
+        # for par in gidonline_genre.values():
+        #     if genres_string.find(par) != -1:
+        #         if paramd["genres_client_view"] == '':
+        #             paramd["genres_client_view"] = par
+        #         else:
+        #             paramd["genres_client_view"] = paramd["genres_client_view"] +', '+ par
+        #=======================================================================
+        # print paramd['country']
+        paramd["genres_client_view"] = paramd["genres_client_view"].strip()  # .decode('utf-8')
+        paramd['translit_video_name'] = translit(paramd['title'], paramd['orig_title'])
+        genres_list = []
+        for i in paramd["genres_client_view"].split(', '):
+            # print 'genre'
+            for gk, gv in ymka_genre.items():
+                # print gv
+                if  i.find(gv) != -1:
+                    genres_list.append(gk)
+        time.sleep(5)
+        try:
+            if one_video_html.find("div", {"class":"infotext"}):
+                paramd["description"] = one_video_html.find("div", {"class":"infotext"}).find('div').renderContents().replace("<strong>", "").replace("</strong>", "").replace('<p>', '').replace('<span class="gnv">© ГидОнлайн</span>', '').replace('</p>', '')  # #.contents[0]
+                #paramd["description"] = paramd["description"]  # .replace('«', '').replace('»', '')
+        except:
+            print traceback.print_exc()
+        try:
+            paramd['image_link'] = one_video_html.find('img', {'class':'t-img'}).get('src')
+            paramd['image_link'] = "http://gidonlinekino.com" + paramd['image_link']
+        except:
+            print traceback.print_exc()
+        if paramd["player_video_url"] != "":
+            base_save(orig_title=paramd["orig_title"], title=paramd["title"], paramd=paramd, video_type=video_type, genres_list=genres_list, serial=False)
+
+        paramd = {}
+
+adreses = {'detective': u'http://gidonlinekino.com/genre/detektiv/page/1/', 'adventure': u'http://gidonlinekino.com/genre/priklyucheniya/page/1/',
+           'biografiya': u'http://gidonlinekino.com/genre/biografiya/page/1/', 'history': u'http://gidonlinekino.com/genre/istoriya/page/1/',
+           'boevik': u'http://gidonlinekino.com/genre/boevik/page/1/', 'komediya': u'http://gidonlinekino.com/genre/komediya/page/1/',
+           'sport': u'http://gidonlinekino.com/genre/sport/page/1/', 'vestern': u'http://gidonlinekino.com/genre/vestern/page/1/',
+           'kriminal': u'http://gidonlinekino.com/genre/kriminal/page/1/', 'triller': u'http://gidonlinekino.com/genre/triller/page/1/',
+           'voennyj': u'http://gidonlinekino.com/genre/voennyj/page/1/', 'melodrama': u'http://gidonlinekino.com/genre/melodrama/page/1/',
+           'uzhasy': u'http://gidonlinekino.com/genre/uzhasy/page/1/', 'drama': u'http://gidonlinekino.com/genre/drama/page/1/',
+           'fentezi': u'http://gidonlinekino.com/genre/fentezi/page/1/', 'fantastika': u'http://gidonlinekino.com/genre/fantastika/page/1/',
+           'semejnyj': u'http://gidonlinekino.com/genre/semejnyj/page/1/', 'artxaus': u'http://gidonlinekino.com/genre/artxaus/page/1/',
+           'dokumentalnyj': u'http://gidonlinekino.com/genre/dokumentalnyj/page/1/'}
+# adreses = {'all_films': u'http://gidonlinekino.com/page/1/'}
+# adreses = {'new_films':u'http://gidonlinekino.com/page/1'} # Потом раскомментить когда будет проход по всем жанрам
+# adreses = {'non':'non'}
+#adreses = {'multfilm': u'http://gidonlinekino.com/genre/multfilm/'}
+
+
+for key, adres in adreses.iteritems():
+    ADRESS = adreses[key]
+    try:
+        res = urllib.urlopen(ADRESS).read()  # Предыдущий вариант без хедеров
+        soup = BeautifulSoup(str(res))
+
+    except Exception, e:
+        print traceback.print_exc()
+        print "Не удалось открыть веб страницу, подождите..."
+        time.sleep(4)  # Раскомментировать
+        # continue  # Если происходит дисконнект, чтобы скрипт не переставал работать
+
+    def get_number_pages():
+        pages = None
+        try:
+            count_pages = soup.find("div", {"class":"wp-pagenavi"}).find('a', {'class':'last'}).get('href')
+            pages = count_pages[-4:].replace('/', '').strip()
+        except Exception, e:
+            print "Ошибка html разметки на странице, не удалось получить значение колличества страниц для данного раздела..."
+            print traceback.print_exc()
+            return 1
+
+        print u"Колличество страниц = " + str(pages)
+        return pages
+
+    def Parse_pages_section(pages):
+        if key == 'new_films':  # Парсить первые 2 страницы новинок
+            pages = 2
+            for index in  range(1, int(pages) + 1):
+                ADRESS = adreses[key].replace('1', str(index))
+                Parse_one_page(ADRESS)
+        else:
+            for index in  range(1, int(pages) + 1):
+                print u"Страница " + str(index) + u':'
+                ADRESS = adreses[key].replace('1', str(index))
+                Parse_one_page(ADRESS)  # Раскомментить !!!
+
+
+    if key != 'serial':
+        print u'Раздел:' + key,
+        if key == 'artxaus' or key == 'dokumentalnyj':
+            pages = 10
+            print u"Колличество страниц = " + str(pages)
+        else:
+            pages = get_number_pages()
+
+        Parse_pages_section(pages)
+
+#===============================================================================
+# ### Кинопоиск
+#===============================================================================
+from xml.dom.minidom import *
+for name in Video.objects.all():
+    #name = Video.objects.get(id = 10334 ) # Закомментить !!!
+
+    if name.orig_title:
+        title = name.orig_title
+    else:
+        title = name.title
+    # else:
+
+    #    break;
+    logging.disable(logging.CRITICAL)
+    g = Grab()
+    g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+    # time.sleep(5)
+    try:
+        g.go('http://www.kinopoisk.ru/index.php?first=no&what=&kp_query=%s' % (urllib.quote(title.encode('utf-8'))))
+        soup = BeautifulSoup(g.response.body)
+    except Exception, e:
+        # print traceback.print_exc()
+        print u"Произошел дисконект, пожалуйста подождите..."
+        time.sleep(10)
+    # sys.exit()
+    try:
+        for year in soup.find('div', {'class':'element most_wanted'}).find('p', {'class':'name'}).findAll('span'):
+            year = year.contents[0][:4]
+
+
+        # exist = name.premiere_date.find(str(year) )
+        # print title.encode('utf-8')
+        # print str(year)
+        # print str(int(year)-1)
+        try:
+            image_exist = False
+            gidonline = False
+            ymka = False
+            if not name.image_link.find('st.kp') == -1:
+                image_exist = True
+                print u"Уже есть постер с кинопоиска для видео " + title
+            if name.source == 2:
+                if not name.year.find(str(year)) == -1:  # or not name.year.find(str(int(year)+1) ) == -1
+                    gidonline = True
+            if name.source == 1:
+                if not name.premiere_date.find(str(year)) == -1 or not name.premiere_date.find(str(int(year) + 1)) == -1:
+                    ymka = True
+            if gidonline or ymka:
+                name.year = year
+                try:
+                    for link in soup.find('div', {'class':'element most_wanted'}).find('p', {'class':'name'}).findAll('a'):
+                        film_id = link.get('href').replace('/level/1/film/', '').replace('/sr/1/', '')
+                        # print film_id
+                        name.rating = film_id
+                        try:
+                            g.go('http://www.kinopoisk.ru/film/%s/' % (film_id))
+                            page_img = BeautifulSoup(g.response.body)
+                        except Exception, e:
+                            print traceback.print_exc()
+                        try:
+                            for img_link in page_img.find('a', {'class':'popupBigImage'}).findAll('img'):
+                                if img_link.get('src') and str(img_link.get('src')).find('poster_none') == -1:
+                                        if not image_exist:
+                                            name.image_link = img_link.get('src')
+                        except Exception, e:
+                            # print traceback.print_exc() # Нет изображения
+                            print u"Нет картинки нужного размера"
+                        # ## XML Кинопоиск
+
+                        kino_xml_url = 'http://rating.kinopoisk.ru/%s.xml' % (int(film_id))
+                        logging.disable(logging.CRITICAL)
+                        g = Grab()
+                        g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+                        try:
+                            g.go(kino_xml_url)
+                            xmldoc = xml.dom.minidom.parseString(g.response.body)
+                            root = xmldoc.documentElement
+                            # print g.response.body
+                            imdb_rating = False
+                            kp_rating = False
+                            for node in root.childNodes:
+                                if node.nodeName == 'kp_rating':
+                                    kp_rating = node.childNodes[0].nodeValue
+                                    num_vote_kp = node.getAttribute('num_vote')
+                                    name.kp_rating = kp_rating + " " + "(" + num_vote_kp + ")"
+                                if node.nodeName == 'imdb_rating':
+                                    imdb_rating = node.childNodes[0].nodeValue
+                                    num_vote = node.getAttribute('num_vote')
+                                    name.imdb_rating = imdb_rating + " " + "(" + num_vote + ")"
+
+                            name.save()
+                            if ymka:
+                                print "Данные рейтинга успешно получены! Источник: ymka.tv",
+                            if gidonline:
+                                print "Данные рейтинга успешно получены! Источник gidonlinekino.com",
+                            print u'Название видео: ' + title, u'Рейтинг кинопоиска: ' + kp_rating , u' Рейтинг Imdb: ' + imdb_rating
+                        except Exception, e:
+                            # print traceback.print_exc()
+                            print "Рейтинга Imdb нет в xml документе кинопоиска..."
+                            time.sleep(10)
+                except Exception, e:
+                    print traceback.print_exc()
+            else:
+                print u"Не найден нужный фильм в кинопоиске..."
+        except Exception, e:
+            print traceback.print_exc()
+        except ImageExist:
+            print u"Постер уже есть в базе"
+    except Exception, e:  # Если имя и оригинальное имя отсутствуют, т.е
+        # print traceback.print_exc()
+        print "Произошел дисконнект, пожалуйста подождите..."
+
+        # time.sleep(15)
+
+
+print 'END of Script ' + str(datetime.datetime.now())
+
+
+
+
+
+
+
+
+

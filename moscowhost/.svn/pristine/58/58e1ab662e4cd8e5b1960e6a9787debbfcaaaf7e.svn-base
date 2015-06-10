@@ -1,0 +1,184 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+
+import datetime
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from data_centr.models import Data_centr_payment, Zakazy
+from externalnumbers.models import ExternalNumber, ExternalNumberUsing
+from billing.models import BillserviceAccount
+from django.contrib.auth.models import User
+from telnumbers.models import TelNumbersGroup
+import logging
+
+user_obj = User.objects.get(username='globalhome')
+profile = user_obj.get_profile()
+bac = profile.billing_account
+
+LIMIT_7499 = 80
+LIMIT_7495 = 20
+
+"""Генерируем имя для лог-файла"""
+today = datetime.datetime.now()
+LOG_FILENAME = 'log/' + today.strftime("circle_get_numbers-%Y-%m-%d %H-%M") + '.log'
+# create console handler
+formatter_ch = logging.Formatter(u"%(asctime)s - %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+ch.setFormatter(formatter_ch)
+# create file handler
+formatter = logging.Formatter(u"%(asctime)s - %(levelname)s - %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+fl = logging.FileHandler(filename=LOG_FILENAME, encoding='utf-8')
+fl.setLevel(logging.DEBUG)
+fl.setFormatter(formatter)
+# create logger
+log = logging.getLogger('mts')
+log.setLevel(logging.DEBUG)
+log.addHandler(ch)
+log.addHandler(fl)
+log.warning(u'Start')
+
+# external_telnumbers = [
+# "84996383981",
+# "84996383960",
+# "84996383982",
+# "84996383931",
+# "84996383978",
+# "84996383989",
+# "84996383965",
+# "84996383996",
+# "84996383925",
+# "84996383958",
+# "84996383926",
+# "84996383952",
+# "84996383933",
+# "84996383980",
+# "84996383942",
+# "84996383990",
+# "84996383951",
+# ]
+#
+# for add_number in external_telnumbers:
+#    print add_number
+#    if add_number.startswith('8499'):
+#        add_number = '7' + add_number[1:]
+#    try:
+#        external_number_obj = ExternalNumber.objects.get(number=add_number)
+#    except ExternalNumber.DoesNotExist:
+#        print u'Нет такого гномера'
+#        continue
+#
+#    external_number_obj.phone_numbers_group = TelNumbersGroup.objects.get(id=945)
+#    external_number_obj.account = bac
+#    external_number_obj.is_free = False
+#    external_number_obj.is_reserved = False
+#    external_number_obj.assigned_at = datetime.datetime.now()
+#    external_number_obj.sip_address = ''
+#    external_number_obj.save()
+#    # exit()
+
+
+
+
+old_date = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+old_numbers = [x.number for x in ExternalNumberUsing.objects.filter(using_at=old_date)]
+log.info(u'Отключаем старые номера: %s' % len(old_numbers))
+# exit()
+# for external_number_obj in old_numbers:
+#    if external_number_obj.account == bac:
+#        log.info(external_number_obj.phone_numbers_group)
+#        log.info(external_number_obj.account)
+#        log.info(external_number_obj.is_free)
+#        log.info(external_number_obj.is_reserved)
+#        log.info(external_number_obj.assigned_at)
+#        log.info(external_number_obj.sip_address)
+# exit()
+for external_number_obj in old_numbers:
+    if external_number_obj.account == bac:
+        external_number_obj.phone_numbers_group = None
+        external_number_obj.account = None
+        external_number_obj.is_free = True
+        external_number_obj.is_reserved = False
+        external_number_obj.assigned_at = None
+        external_number_obj.sip_address = ''
+        external_number_obj.save()
+
+# exit()
+
+start_date = (datetime.datetime.now() - datetime.timedelta(days=4)).strftime('%Y-%m-%d')
+# log.info(start_date)
+# exclude_numbers = [x.number for x in ExternalNumberUsing.objects.filter(using_at__gt=start_date)]
+exclude_numbers = []
+log.info(u'Найдено всего использованных номеров за 4 дня: %s' % len(exclude_numbers))
+
+old_out_numbers_7499 = [x.number for x in ExternalNumberUsing.objects.filter(using_at=start_date, number__region=1, number__is_free=True, number__is_reserved=False, number__dinging=True, number__number__startswith='7499')]
+log.info(u'Найдено использованных номеров 7499 4 дня назад: %s' % len(old_out_numbers_7499))
+out_numbers_today_7499 = [x.number for x in ExternalNumberUsing.objects.filter(using_at=datetime.date.today(), number__number__startswith='7499')]
+log.info(u'Найдено подобранных номеров 7499 за сегодня: %s' % len(out_numbers_today_7499))
+# out_numbers_7499 = list(set(old_out_numbers_7499 + out_numbers_today_7499))
+# log.info(u'Найдено всего подобранных номеров 7499: %s' % len(out_numbers_7499))
+
+out_numbers_add_7499 = []
+for number in old_out_numbers_7499:
+    if len(out_numbers_add_7499 + out_numbers_today_7499) >= LIMIT_7499:
+        break
+    if (number in exclude_numbers) or (number in out_numbers_add_7499) or (number in out_numbers_today_7499):
+        continue
+    log.debug(number.number)
+    out_numbers_add_7499.append(number)
+log.info(u'Найдено номеров из прошлого для добавления 7499: %s' % len(out_numbers_add_7499))
+
+numbers = ExternalNumber.objects.all().filter(region=1, is_free=True, is_reserved=False, dinging=True, number__startswith='7499')
+for number in numbers:
+    if len(out_numbers_add_7499 + out_numbers_today_7499) >= LIMIT_7499:
+        break
+    log.debug(number.number)
+    if (number in exclude_numbers) or (number in out_numbers_add_7499) or (number in out_numbers_today_7499):
+        continue
+    out_numbers_add_7499.append(number)
+log.info(u'Найдено номеров для добавления 7499: %s' % len(out_numbers_add_7499))
+
+
+old_out_numbers_7495 = [x.number for x in ExternalNumberUsing.objects.filter(using_at=start_date, number__region=1, number__is_free=True, number__is_reserved=False, number__dinging=True, number__number__startswith='7495')]
+log.info(u'Найдено использованных номеров 7495 4 дня назад: %s' % len(old_out_numbers_7495))
+out_numbers_today_7495 = [x.number for x in ExternalNumberUsing.objects.filter(using_at=datetime.date.today(), number__number__startswith='7495')]
+log.info(u'Найдено подобранных номеров 7495 за сегодня: %s' % len(out_numbers_today_7495))
+# out_numbers_7495 = list(set(old_out_numbers_7495 + out_numbers_today_7495))
+# log.info(u'Найдено всего подобранных номеров 7495: %s' % len(out_numbers_7495))
+
+out_numbers_add_7495 = []
+for number in old_out_numbers_7495:
+    if len(out_numbers_add_7495 + out_numbers_today_7495) >= LIMIT_7495:
+        break
+    if (number in exclude_numbers) or (number in out_numbers_add_7495) or (number in out_numbers_today_7495):
+        continue
+    log.debug(number.number)
+    out_numbers_add_7495.append(number)
+log.info(u'Найдено номеров из прошлого для добавления 7495: %s' % len(out_numbers_add_7495))
+
+numbers = ExternalNumber.objects.all().filter(region=1, is_free=True, is_reserved=False, dinging=True, number__startswith='7495')
+for number in numbers:
+    if len(out_numbers_add_7495 + out_numbers_today_7495) >= LIMIT_7495:
+        break
+    log.debug(number.number)
+    if (number in exclude_numbers) or (number in out_numbers_add_7495) or (number in out_numbers_today_7495):
+        continue
+    out_numbers_add_7495.append(number)
+log.info(u'Найдено номеров для добавления 7495: %s' % len(out_numbers_add_7495))
+
+
+out_numbers_add = out_numbers_add_7499 + out_numbers_add_7495
+log.info(u'Найдено номеров для добавления: %s' % len(out_numbers_add))
+# exit()
+for external_number_obj in out_numbers_add:
+    external_number_obj.phone_numbers_group = TelNumbersGroup.objects.get(id=945)
+    external_number_obj.account = bac
+    external_number_obj.is_free = False
+    external_number_obj.is_reserved = False
+    external_number_obj.assigned_at = datetime.datetime.now()
+    external_number_obj.sip_address = '10.12.126.40'
+    external_number_obj.save()
+    number_using = ExternalNumberUsing(number=external_number_obj, using_at=datetime.datetime.now())
+    number_using.save()

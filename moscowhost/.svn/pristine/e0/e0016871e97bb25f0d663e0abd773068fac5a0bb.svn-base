@@ -1,0 +1,120 @@
+#!/usr/bin/env python
+# coding: utf-8
+import sys
+import psycopg2
+from pool import Pool
+from take_event_for_obzvon import take_event
+import os
+#from settings import DATABASES
+print sys.path
+sys.path.append('../')
+print sys.path
+sys.path[0] = os.path.abspath(os.curdir)
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+import time
+print os.environ['DJANGO_SETTINGS_MODULE']
+#from django.conf import settings
+from settings import DATABASES
+
+def runinpotok(id_obzvon, type_obzvon):
+    try:
+#        model.from_number, model.id, filename, model.answer_dtmf, model.dtmf_wait_time, model.count_call, id_ivr
+#        from_numb = sys.argv[1]
+#        id_obzvon = sys.argv[1]
+#        file = sys.argv[3]
+#        dtmf = sys.argv[4]
+#        wait_dtmf = sys.argv[5]
+#        count_call = sys.argv[6]
+#        number_ivr = sys.argv[7]
+#        type_obzvon = sys.argv[2]
+
+        #from ConfigParser import ConfigParser
+
+        #config = ConfigParser()
+        #config.read('/usr/local/freeswitch/python/config.ini')
+        """Data for connect to database ebs"""
+        #HOST = config.get('db', 'host')
+        #USER = config.get('db', 'user')
+        #PASSWORD = config.get('db', 'password')
+        #DBNAME = config.get('db', 'dbname')
+        print "connect to db in potok"
+        print DATABASES['billing']['HOST']
+        conn = psycopg2.connect("dbname=%s user=%s host=%s password=%s" % (DATABASES['billing']['NAME'], DATABASES['billing']['USER'], DATABASES['billing']['HOST'], DATABASES['billing']['PASSWORD']));
+        conn.set_isolation_level(0)
+        cur = conn.cursor()
+        id_copy = id_obzvon
+        if type_obzvon == 'repeat':
+            cur.execute("""INSERT INTO user_obzvon (billing_account_id, from_number, file,file_text,status,answer_dtmf,answer_ivr,dtmf_wait_time,count_call,one_times,
+                            obzvon_time_for_one,date_to,many_times,obzvon_time_enabled,obzvon_time,obzvon_day_enabled,day_of_week,obzvon_concretic_day_enabled,day_of_month)
+                            SELECT billing_account_id, from_number, file,file_text,status,answer_dtmf,answer_ivr,dtmf_wait_time,count_call,one_times,
+                            obzvon_time_for_one,date_to,many_times,obzvon_time_enabled,obzvon_time,obzvon_day_enabled,day_of_week,obzvon_concretic_day_enabled,
+                            day_of_month FROM user_obzvon WHERE id=%s RETURNING id;""" % (id_obzvon,))
+            print """INSERT INTO user_obzvon (billing_account_id, from_number, file,file_text,status,answer_dtmf,answer_ivr,dtmf_wait_time,count_call,one_times,
+                            obzvon_time_for_one,date_to,many_times,obzvon_time_enabled,obzvon_time,obzvon_day_enabled,day_of_week,obzvon_concretic_day_enabled,day_of_month)
+                            SELECT billing_account_id, from_number, file,file_text,status,answer_dtmf,answer_ivr,dtmf_wait_time,count_call,one_times,
+                            obzvon_time_for_one,date_to,many_times,obzvon_time_enabled,obzvon_time,obzvon_day_enabled,day_of_week,obzvon_concretic_day_enabled,
+                            day_of_month FROM user_obzvon WHERE id=%s RETURNING id;""" % (id_obzvon,)
+            print 'id_copy'
+
+            id_copy = cur.fetchone()[0]
+            print id_copy
+
+        cur.execute("""UPDATE user_obzvon SET status = 3 where id='%s';""" % (id_copy))
+
+        cur.execute("""SELECT from_number, file, answer_dtmf, dtmf_wait_time, count_call, s.create_myivr_temp_id, min_time, max_time, max_min_time_enabled
+                    FROM user_obzvon LEFT JOIN user_obzvon_obzvon_ivr s ON s.obzvonmodel_id=%s WHERE user_obzvon.id=%s;""" % (id_obzvon,id_obzvon,))
+        list_variable = cur.fetchone()
+        cur.execute("""SELECT id, number, add_number FROM user_obzvon_number WHERE id_obzvon_id=%s AND status=''""" % (id_obzvon,))
+        if type_obzvon == 'repeat':
+            cur.execute("""SELECT id, number, add_number FROM user_obzvon_number WHERE id_obzvon_id=%s""" % (id_obzvon,))
+        else:
+            cur.execute("""SELECT id, number, add_number FROM user_obzvon_number WHERE id_obzvon_id=%s AND status=''""" % (id_obzvon,))
+        List = cur.fetchall()
+        print List
+        pool = Pool(workers=10 if len(List) > 10 else len(List), acceleration=5)
+        for x in List:
+            i = x[0]
+            if type_obzvon == 'repeat':
+                cur.execute("""INSERT INTO user_obzvon_number (billing_account_id,number,add_number,status,
+                                answer_time,duration,id_obzvon_id,digits,number_from_file)
+                                SELECT billing_account_id,number,add_number,status,answer_time,duration,%s,
+                                digits,number_from_file FROM user_obzvon_number WHERE id=%s RETURNING id;""" % (id_copy,x[0],))
+                id_number_copy = cur.fetchone()
+                print "id_number_copy"
+                print id_number_copy[0]
+                i = id_number_copy[0]
+            add = x[2]
+            sim = x[1]
+
+            #pool.add(take_event, from_numb, str(sim), str(add), file, id_copy, i, cur, dtmf, wait_dtmf, count_call, number_ivr)
+            pool.add(take_event, list_variable[0], str(sim), str(add), list_variable[1], id_copy, i, cur, list_variable[2], list_variable[3], list_variable[4], list_variable[5], list_variable[6], list_variable[7], list_variable[8])
+        pool.start(wait_threads=False)
+
+    except Exception, e:
+        print e
+    try:
+        while pool.queue.queue:
+            #log.info('queue')
+            time.sleep(5)
+        z = Pool.workers
+        while z:
+            time.sleep(5)
+            #log.info('workers')
+            for i, w in enumerate(z):
+                if not w.isAlive():
+                    del(z[i])
+    except Exception, e:
+        print e
+    zapr = """UPDATE user_obzvon SET status = 1 WHERE id='%s' AND status!=4;""" % (id_copy)
+    cur.execute(zapr)
+    print "end_of_script"
+
+if __name__ == "__main__":
+    try:
+        print "start"
+        List = []
+        id_obzvon = sys.argv[1]
+        type_obzvon = sys.argv[2]
+        runinpotok(id_obzvon, type_obzvon)
+    except Exception, e:
+        print e

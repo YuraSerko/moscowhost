@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+import psycopg2
+import sys
+import datetime
+
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+from settings import DATABASES
+import os
+
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['default'])
+conn2 = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur2 = conn2.cursor()
+cur.connection.set_isolation_level(1)
+cur.connection.commit()
+
+try:
+    cur.execute("DELETE from priority_of_services")
+except Exception, e:
+    print e
+    cur.connection.rollback()
+else:
+    cur.connection.commit()
+
+try:
+    cur.execute("SELECT setval('priority_of_services_id_seq', 1, False);")
+except Exception, e:
+    print e
+    cur.connection.rollback()
+else:
+    cur.connection.commit()
+try:
+    cur2.execute("SELECT distinct bill_account_id FROM data_centr_zakazy ORDER BY bill_account_id;")
+    spis_bill_account = cur2.fetchall()
+    print spis_bill_account
+    for bill_account in spis_bill_account:
+        cur2.execute("SELECT id FROM data_centr_zakazy WHERE bill_account_id=%s;", (bill_account[0],))
+        spis_zakaz = cur2.fetchall()
+        print "------------------------------------------------------------------------------"
+        print "-------------------- start add records for bill_account_id=%s --------------------" % bill_account[0]
+        i = 0
+        for zakaz_id in spis_zakaz:
+            i += 1
+            cur2.execute("INSERT INTO priority_of_services(bill_account_id, zakaz_id, priority) VALUES (%s, %s, %s)", (bill_account[0], zakaz_id, i))
+        print "--------------------- end add_records for bill_account_id=%s ---------------------" % bill_account[0]
+        print "------------------------------------------------------------------------------"
+except Exception, e:
+    print "Exception in formation_check: '%s'" % e
+    exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    print "Exception in formation_check: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+    cur2.connection.rollback()
+else:
+    cur2.connection.commit()
+print "Add records in priority_of_services is successfully complete"

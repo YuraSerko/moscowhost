@@ -1,0 +1,309 @@
+{% extends 'base_public.html' %}
+{% load i18n form_tags lib_tags %}
+
+
+
+
+
+
+{% block accordeon %}
+  	
+	
+  	<script>
+  		//$(".main").attr('style', 'border-right:none!important')
+  	</script>
+  	
+  	
+  	<style> 
+		.ac-container .article {
+	  	/*border-right: 1px solid #34495e!important; */
+	  	width:976px!important;
+	 	}
+	</style>
+  	
+  	
+  		
+  	 <div>
+  	<!-- 1страница -->	
+  	{% if not config_page %} <!-- если не адрес выбора конфигурации(далее добавить и оформл. заказа) то показываем просто инфу-->
+      	<input id="ac-1" name="accordion-1" type="radio" checked="true"  />  <!-- показываем страницу инфа -->
+      {% else %}
+      	<input id="ac-1" name="accordion-1" type="radio" onclick = "change_url_js(1)" /> <!-- переход на 1 страницу -->
+      {% endif %}
+      <label for="ac-1"><img src="{{ MEDIA_URL }}pictures/step1b.png"></label>
+
+
+      <div class="article" id="1">    
+      	
+      		
+      		
+<!-- форма с вводом суммы платежа -->
+{% if form %}
+			<div style = 'margin-left:10px;'>
+		    <h1 class="title" id="title_webmoney">Пополнение webmoney merchant</h1>
+		    {% block notifications %} 
+		    				<!-- сообщения об ошибках  -->
+		                    {% if request.notifications %}
+		                        {% for message in request.notifications %}
+		                            <div class="status status-{{ message.tags }}">
+		                                <i class="ico"></i>
+		                                <div class="status-i">
+		                                    <p>{{ message }}</p>
+		                                </div>
+		                            </div>
+		                        {% endfor %}
+		                    {% endif %}
+		    {% endblock %}
+		   
+		    
+		        <form id="pay" name="pay" method="POST" action="">
+		            <h4 class="h4_style">{% trans "Please specify the amount for which you want to replenish the balance" %}:</h4>
+		            
+		            <div class="form_django">
+		            
+		                {% for field in form %}  
+		                      {% form_field field block %}      
+		                {% endfor %}	
+		                <div class="form-submit-right">
+		                    <!-- input id="submit-button" type="submit" class="bt bt-blue2" name="submit" value="{% trans 'Continue' %}"/-->
+		                    {% if not account %}
+	           				{% if user and not user.is_anonymous %}
+		                    	<input id="submit-button" type="submit" class="btn left" name="submit" value="ДАЛЕЕ"/>
+		                    {% endif %}
+		                    {% endif %}
+		                </div>
+		            
+		            </div>
+		            
+		            
+		        <!-- блок залогинен либо не залогинен -->
+ 				{% if not account %}
+	            {% if user and not user.is_anonymous %}
+	            		
+	                            <label style="width: 70%"><input type="hidden" name="face" id="face_2"  value="2">
+	                            Вы авторизованы как пользователь: <strong>{{ user }}</strong></label></td>
+	                     
+	                {% else %} <!-- не авторизован -->
+	                   
+	                            <div>
+	                            	<label><input name="face" type="radio" id="face_0"  value="0" checked="checked" onclick = "reload_auth_form(0)"><strong>Зарегистрироваться</strong></label>
+	                      		</div>
+	                            
+	                            <div>
+	                            	<label><input type="radio" name="face" id="face_1" value="1" onclick = "reload_auth_form(1)"><strong>Авторизоваться в системе</strong></label>
+	                  			</div>
+	                <!-- div id = "auth_popup"></div--> <!-- div для формы -->
+	                <!-- javascript и подгружаем окно войти и зарегестрироваться -->
+	                	
+	                
+	                <script>
+			                
+	                        //переносим сумму в форму логирования
+			                /* 
+	                        $("#id_money").keyup(function(){
+			                 		//alert('hello');
+			                 		//alert($("#id_money").val());
+			                 	$("#textfield").atrr('value' , $("#id_money").val());  
+			                 })
+                    		*/
+                    		
+                    		$('#id_money').bind('focus', id_focus);
+	                       
+	                        function id_focus(){
+	                        	if ($('#id_money').prev().hasClass('field-errorsjs')){
+	                        		$('#id_money').prev().remove();
+	                        		$('#title_webmoney').next().remove();
+	                        		
+	                        	}
+	                        }
+                    		
+                    		
+                    		function numeric (str) { return /^[0-9(\)\s]+z/.test(str + "z"); }
+	                			
+			                function payment_step_auth(account)   //для прорисовки форм login/register
+			            	{
+			            		//alert('zareg');
+			            		get = "&summa=" + document.getElementById('id_money').value;
+			            		//get += "&count_ip=" + document.getElementById('id_money').value;
+			            		//get += "&speed_inet=" + document.getElementById('range_speed').value;
+			            		//get += "&software_ids=" + document.getElementById('hidden_software_list').innerHTML;
+			            		//alert(document.getElementById('hidden_software_list').innerHTML);
+			            		//var str = $("#dedicated_zakaz").serialize();
+
+			            		var str = $("#pay").serialize();
+			            		$.ajax({
+			            		url: '/payment/step_auth/'+ account +'/?'+str+get,
+			            		cache: false,
+			            		async: true,
+			            		//data: {summa:'summa'},  
+			            		success: function(html){
+			            			//alert('succuss');
+			            			//alert(html);
+			            			$("#auth_popup").html(html);  //форму авторизации 
+			            		}
+			            		
+			            		});
+			            		/*document.getElementById('dedicated_zakaz').action = '/dedicated/step_auth/'+ account +'/?'+str+'&server_id='+server_id+'&count_ip='+count_ip;
+			            		document.getElementById('dedicated_zakaz').submit();*/
+			            	}
+			                
+			                
+			                
+			                function step_final_virtual_server(req)    // на форме логирования/регистрации далее req param
+			            	{	
+			                	
+			                	
+			          			/*чистка ошибок если есть*/
+			                	if ($('#id_money').prev().hasClass('field-errorsjs')){
+	                        		$('#id_money').prev().remove();
+	                        		$('#title_webmoney').next().remove();
+	                        		
+	                        	}
+			                	
+			                	
+			                	
+			                	/*если поле сумма пустое или не цифра*/
+			                	if  ($('#id_money').val() == '')        // ||   (numeric( $('#id_money').val()) =='')     )  {
+			                		{	$('#id_money').before('<div class="field-errorsjs"><ul class="errorlist"><li>Обязательное поле.</li></ul></div>');
+			                			$('#title_webmoney').after('<div class="status status-error"><i class="ico"></i><div class="status-i"><p>Ошибка в заполнении полей</p></div></div>');
+			                		}
+			                	
+			                	
+			                	if  ((!numeric($('#id_money').val())) && ($('#id_money').val() != ''))   
+			                		{	$('#id_money').before('<div class="field-errorsjs"><ul class="errorlist"><li>Ввeдите целое число.</li></ul></div>');
+			                			$('#title_webmoney').after('<div class="status status-error"><i class="ico"></i><div class="status-i"><p>Ошибка в заполнении полей</p></div></div>');
+			                		}
+			                	
+			                	
+			                	alert('step_final_virtual_server');
+			                	
+			                	summa =$('#id_money').val();
+			                	$("#textfield").attr('value', summa);   
+			            		var str = $("#form_auth").serialize();
+			            		$.ajax({
+			                            url: "/payment/step_pay/step_"+req+"/?"+str,
+			                            cache: false,
+			            				async: false,
+			            				  
+			                            success: function(html){
+			                            	//alert('succcess');
+			                                $("#auth_popup").html(html);
+			                            }  
+			                        });
+			            	}
+			                
+			                
+			                
+			                function reload_auth_form(a){
+			                	/*server_id = '{{ server.id }}';
+			                	account = '{{ account }}';
+			                	payment_step_auth('False');*/
+			                	payment_step_auth('False');
+			                }
+			                payment_step_auth('False');  //первый раз выбрано зарегестрироваться
+	                </script>
+	                
+	                
+	            {% endif %}
+            	{% endif %}
+		        <!--окончание блока залогинен не залогинен--> 
+		        </form>
+		        
+		       
+		       
+		       <br>
+		       <br>
+		       <div id = "auth_popup"></div>
+	
+
+	
+
+		       
+		       
+		
+		{% else %}
+			<script type="text/javascript">
+		     function load()
+		     {	  
+		          window.document.pay.submit();
+		          return;
+		     }
+		     </script>
+		    
+		    <div style = 'margin-left:10px;'>
+		    <h1 class="title">Подтверждение</h1>
+		    
+		    <body onLoad="load()">
+		    
+		    <form id=pay name=pay method="POST" action="https://paymaster.ru/Payment/Init">
+		        <h4 class="h4_style">{% trans "Пожалуйста ожидайте. Сейчас произойдет перенаправление на страницу оплаты" %}.</h4>
+		        <h4 class="h4_style">{% trans "Если этого не произошло, нажмите кнопку ниже" %}:</h4>
+		        <div class="form-submit-left">
+		            <input class="bt bt-blue2" type="submit" value={% trans "Оплатить" %}>
+		        </div>
+		        <p>
+		            <input type="hidden" name="LMI_MERCHANT_ID" value="{{ merchant_id }}">
+		            <input type="hidden" name="LMI_PAYMENT_AMOUNT" value="{{ amount }}">
+		            <input type="hidden" name="LMI_CURRENCY" value="{{ currency }}">
+		            <input type="hidden" name="LMI_PAYMENT_NO" value="{{ payment_id }}">
+		            <input type="hidden" name="LMI_PAYMENT_DESC" value="{{ payment_name }}">
+		            <input type="hidden" name="LMI_PAYMENT_DESC_BASE64" value="{{ payment_name_base64 }}" />
+		            <input type="hidden" name="LMI_SIM_MODE" value="{{ sim_mode }}">
+		            <input type="hidden" name="LMI_PAYER_PHONE_NUMBER" value="{{ payer_phone_number }}">
+		            <input type="hidden" name="LMI_PAYER_EMAIL" value="{{ payer_email }}">
+		            <input type="hidden" name="LMI_EXPIRES" value="{{ expires }}">
+		            <input type="hidden" name="account_id" value="{{ account_id }}">
+		            <input type="hidden" name="type" value="{{ type }}">
+		        </p>
+		    </form>
+		    </div>
+
+{% endif %}
+<!-- окончание формы ввода суммы платежа -->
+				 
+					 
+					 
+					 
+      </div>
+  	</div>
+  
+{% endblock %}
+  
+  
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+{% comment %}
+<!-- webmoney merchant -->
+<form id=pay name=pay method="POST" action="https://merchant.webmoney.ru/lmi/payment.asp" accept-charset="windows-1251" >
+<p>пример платежа через сервис Web Merchant Interface</p>
+<p>заплатить 1 WMZ...</p>
+<p>
+<input type="hidden" name="LMI_PAYMENT_AMOUNT" value="1.0" />
+<input type="hidden" name="LMI_PAYMENT_DESC" value="тестовый платеж" />
+<input type="hidden" name="LMI_PAYMENT_NO" value="1">
+<input type="hidden" name="LMI_PAYEE_PURSE" value="Z145179295679" />
+<input type="hidden" name="LMI_SIM_MODE" value="0" />
+</p>
+<p>
+<input type="submit" value="submit" />
+</p>
+</form>
+<!-- end webmoney merchant -->
+{% endcomment %}
+
+
+

@@ -1,0 +1,107 @@
+{% extends 'base_public.html' %}
+{% load i18n form_tags %}
+
+{% block content %}
+
+
+{% if site != 3 %}
+<!--h1 class="title">Оплата карты с помощью Robokassa</h1-->
+<h1 class="title">Оплата со счета мобильного телефона</h1>
+
+{{ block.super }}
+{% endif %}
+
+
+
+{% if site == 3 %}
+<style type="text/css">
+    .form-submit-left {
+        display: block;
+    }
+    .h4_style {
+color: #535353;
+font-size: 12px;
+}
+h4 {
+font-size: 1em;
+margin: 1.33em 0;
+}
+</style>
+{% block sendin %}
+    {{block.super}}
+{% endblock %}
+
+  <article id="right">
+    <div id='centr_field'>
+
+    {% block cap %}
+    {{block.super}}
+{% endblock %}
+<h1 class="title" style="float: none;">Оплата со счета мобильного телефона </h1>
+
+{% if notifications %}
+        {% for message in notifications %}
+                            <div class="status status-{{ message.tags }}">
+                                <i class="ico"></i>
+                                <div class="status-i">
+                                    <p>{{ message }}</p>
+                                </div>
+                            </div>
+                        {% endfor %}
+    {% endif %}
+
+{% endif %}
+
+{% if rk_form %}
+
+    <form method="POST" action="#" style="margin-left: 20px;margin-top: 50px; margin-bottom: 50px">
+        <div class="popup-form payment-card">
+            {% for field in rk_form %}
+                {% form_field field block %}
+            {% endfor %}
+            <div class="form-submit-right">
+                <input class="bt bt-blue2" type="submit" name="submit" value="Отправить" />
+            </div>
+        </div>
+    </form>
+    
+{% else %}
+<script type="text/javascript">
+     function load()
+     {
+          $(".subb").click();
+     }
+     </script>
+
+    
+    <body onLoad="load()">
+    
+    <!-- <p class="success">Счёт удачно создан. После оплаты счета на указанный e-mail, в течении нескольких минут придет логин и пароль Вашей карты с информацией по активации. Для оплаты счета нажмите кнопку "Оплатить".</p> -->
+
+    <form id=pay name=pay method="POST" action="https://auth.robokassa.ru/Merchant/Index.aspx">
+
+    {% comment %}
+    <form id=pay name=pay method="POST" action="http://test.robokassa.ru/Index.aspx">
+    {% endcomment %}
+        <h4 class="h4_style"> Пожалуйста ожидайте, сейчас вас перенаправит на страницу оплаты.</h4>
+        <h4 class="h4_style"> Если перенаправления не произошло, нажмите кнопку Оплатить.</h4>
+            <input type="hidden" name="MrchLogin" value="{{ mrh_login }}">
+            <input type="hidden" name="OutSum" value="{{ out_summ }}">
+            <input type="hidden" name="InvId" value="{{ inv_id }}">
+            <input type="hidden" name="Desc" value="{{ inv_desc }}">
+            <input type="hidden" name="SignatureValue" value="{{ crc }}">
+            <input type="hidden" name="Shp_operationtype" value="{{ Shp_operationtype }}">            
+            <input type="hidden" name="IncCurrLabel" value="{{ in_curr }}">
+            <input type="hidden" name="Culture" value="{{ culture }}">
+
+        <div class="form-submit-left">
+            <input class="bt bt-blue2 subb" type="submit" name="submit" value="Оплатить"/>
+        </div>
+    </form>
+
+{% endif %}
+    {% if site == 3 %}
+    </article>
+    </div>
+{% endif %}
+{% endblock %}

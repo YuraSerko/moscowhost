@@ -1,0 +1,88 @@
+# -*- coding=UTF-8 -*-
+
+
+from send_mail import send_letter
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from internet_providers import beeline, akado, kom2_internet, onlime, seven_sky, netbynet, nline, awax, qwerty, ropnet
+from internet_providers.beeline import ExceptionPageDontAvalaible, ExceptionChangeLocationOfTags, ExceptionIncorrectData
+from internet_providers.models import Provider, Account
+import psycopg2
+import datetime
+import os
+from settings import DATABASES
+
+
+
+
+# internet_providers_account = Account
+# internet_providers_provider = Provider
+print 'start'
+now = datetime.datetime.now()
+print u"\nStart in: %s" % now.strftime("%Y-%m-%d %H:%M:%S")
+
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['default'])
+cur = conn.cursor()
+
+try:
+    account = sys.argv[1]
+except:
+    account = None
+
+if account:
+    accounts = Account.objects.filter(login=account)
+else:
+    accounts = Account.objects.all()
+
+
+
+letter, letter_error, balance = u"", u"", ''
+for account in accounts:
+    id, login, password, internet_provider, min_balance, check, contract = account.id, account.login, account.password, account.internet_provider.id, account.min_balance, account.private_count, account.physical_person
+    date_time = datetime.datetime.now()
+    error = ''
+    provider_obj = Provider.objects.get(id=account.internet_provider.id)
+    provider = provider_obj.name
+    try:
+        balance = eval(provider).get_balance(login, password, contract=contract)
+    except ExceptionPageDontAvalaible as e:
+        error = e
+    except ExceptionChangeLocationOfTags as e:
+        error = e
+    except ExceptionIncorrectData as e:
+        error = e
+    except Exception, e:
+        error = e
+    try:
+        print ("id:%s  provider:%s  login:%s  password:%s check:%s balance:%s  min_balance:%s datetime:%s'" % (id, provider, login, password, check, balance, min_balance, date_time))
+        print  error
+    except Exception, e:
+        print e
+        pass
+
+    if (error != ''):
+        letter_error += u"Провайдер:%s аккаунт:%s пароль:%s личный счет:%s баланс:%s ошибка:%s\n" % (provider, login, password, check, balance, error)
+    elif balance < min_balance:
+        letter += u"Недостаточно средств. Провайдер:%s аккаунт:%s пароль:%s личный счет:%s баланс:%s минимальный баланс:%s\n" % (provider, login, password, check, balance, min_balance)
+    try:
+        a = (u"id:%s  provider:%s  login:%s  password:%s balance:%s  min_balance:%s  error:%s datetime:%s'\n" % (id, provider, password, login, balance, min_balance, error, date_time))
+    except:
+        pass
+    try:
+        ipa_obj = Account.objects.get(id=id)
+        ipa_obj.datetime = date_time
+        ipa_obj.balance = balance
+        ipa_obj.error = error
+        ipa_obj.save()
+    except Exception, e:
+        print "Exception in record update: '%s'" % e
+        cur.connection.rollback()
+    else:
+        cur.connection.commit()
+
+letter += '\n\n\n' + letter_error
+if letter != '':
+    print letter.encode('utf-8')
+    send_letter(letter)
+

@@ -1,0 +1,117 @@
+
+<!-- МЕНЮ ИЛЬИ -->
+<div class="accord">
+	<input class="inp" id="tab_1left" type="radio" name="tab1"  {% if account_page %}checked="true" {% endif %}  onclick = "location.href='/account'"/>
+	<input class="inp" id="tab_2left" type="radio" name="tab1" />
+	<input class="inp" id="tab_3left" type="radio" name="tab1" {% if my_zakazy %}checked = "true" {% endif %}/>
+	<input class="inp" id="tab_4left" type="radio" name="tab1" {% if edit_profile_page or change_password_page or list_signed_page or contract_cancel_page %} checked="true" {% endif %}/>
+	<input class="inp" id="tab_5left" type="radio" name="tab1" {% if payment_page or write_off_page or priority_write_off %} checked = true {% endif %}/>
+	<input class="inp" id="tab_6left" type="radio" name="tab1" />
+
+	
+	<!--левое меню-->
+	<label class="radioleft" for="tab_1left" id="tab_l1left">Информация</label>
+	<!--[if IE 8]><label class="radioleft" style="margin-top: -36px" onclick="op('1')">Информация</label><![endif]-->
+	<div class="tabs_contLeft">
+		<div id="tab_cc1">
+				{% with user.get_profile.billing_account.ballance as b %}
+				<span class="balance">
+					Баланс:{{ b }}RUR
+				</span>
+				{% endwith %}
+				<label for="tab_l060" id="tab_l06"><a href="/account/payment/webmoney_merchant/">Пополнить баланс</a></label>
+		</div>
+	</div>
+	
+	<label class="radioleft" for="tab_4left" id="tab_l4left">Профиль</label>
+	<!--[if IE 8]><div class="radioleft" style="margin-top: -36px" onclick="op('4')">Профиль</div><![endif]-->
+	<div class="tabs_contLeft">
+		<div id="tab_cc4">
+			<ul>
+				<label class="menuacc" for="tab_l010" id="tab_l01"><li><a href = "/account/" >Информация по учетной записи</a></li></label>
+				<!--[if IE 8]><label onclick="hit('1')" class="menuacc" style="display: block; margin-top: -38px; -ms-filter: 'progid:DXImageTransform.Microsoft.Alpha(Opacity=1)';"><li>Информация по учетной записи</li></label><![endif]-->
+				<label class="menuacc" for="tab_l020" id="tab_l02"><li><a href = "/account/profile/" {% if edit_profile_page %} class ="selected" {% endif %}>Редактировать профиль</a></li></label>
+				<!--[if IE 8]><label onclick="hit('2')" class="menuacc" style="display: block; margin-top: -18px; -ms-filter: 'progid:DXImageTransform.Microsoft.Alpha(Opacity=1)';"><li>Редактировать профиль</li></label><![endif]-->
+				<label class="menuacc" for="tab_l030" id="tab_l03"><li><a href = "/account/changepassword/" {% if change_password_page %} class ="selected" {% endif %} >Изменить пароль</a></li></label>
+				<!--[if IE 8]><label onclick="hit('3')" class="menuacc" style="display: block; margin-top: -18px; -ms-filter: 'progid:DXImageTransform.Microsoft.Alpha(Opacity=1)';"><li>Изменить пароль</li></label><![endif]-->
+				<label class="menuacc" for="tab_l040" id="tab_l04"><li><a href = "/account/findocs/signed/" {% if list_signed_page %} class ="selected" {% endif %}>Подписанные документы</a></li></label>
+				<!--[if IE 8]><label onclick="hit('4')" class="menuacc" style="display: block; margin-top: -18px; -ms-filter: 'progid:DXImageTransform.Microsoft.Alpha(Opacity=1)';"><li>Подписанные документы</li></label><![endif]-->
+				<label class="menuacc" for="tab_l050" id="tab_l05"><li><a href = "/account/findocs/contract_cancellation" {% if contract_cancel_page %} class ="selected" {% endif %}>Расторгнуть договор</a></li></label>
+				<!--[if IE 8]><label onclick="hit('5')" class="menuacc" style="display: block; margin-top: -18px; -ms-filter: 'progid:DXImageTransform.Microsoft.Alpha(Opacity=1)';"><li>Расторгнуть договор</li></label><![endif]-->
+			</ul>
+		</div>
+	</div>
+	
+	<label class="radioleft" for="tab_2left" id="tab_l2left">Услуги</label>
+	<!--[if IE 8]><div class="radioleft" style="margin-top: -36px" onclick="op(2)">Услуги</div><![endif]-->
+	<div class="tabs_contLeft">
+		<div id="tab_cc2">
+			<!-- a class="a_acc" href="#"><div class="acc_menu">
+				Виртуальные сервера с предустановленной 1С системой
+			</div></a-->
+			<!-- a class="a_acc" href="#"><div class="acc_menu">
+				Виртуальные сервера с предустановленной 1С системой
+			</div></a>
+			<a class="a_acc" href="#"><div class="acc_menu">
+				Виртуальные сервера с предустановленной 1С системой
+			</div></a-->
+			<ul>
+				<label class="menuacc" ><li><a href = "/">Виртуальные сервера с предустановленной 1С</a></li></label>
+			</ul>
+		</div>
+	</div>
+
+	<label class="radioleft" for="tab_3left" id="tab_l3left">Мои заказы</label>
+	<!--[if IE 8]><div class="radioleft" style="margin-top: -36px" onclick="op('3')">Мои заказы</div><![endif]-->
+	<div class="tabs_contLeft">
+		<div id="tab_cc3">
+			<!-- span style="font-size: 14px;">
+				<ul>
+				<li>Lorem ipsum dolor sit</li>
+				<li>Lorem ipsum dolor sit</li>
+				<li>Lorem ipsum dolor sit</li>
+			</span-->
+			<ul>
+				<label class="menuacc" ><li><a href = "/account/demands_dc"{% if my_zakazy %} class ="selected" {% endif %}>Мои заявки и заказы на услуги</a></li></label>
+			</ul>
+		</div>
+	</div>
+
+	
+
+	<label class="radioleft" for="tab_5left" id="tab_l5left">Финансы</label>
+	<!--[if IE 8]><div class="radioleft" style="margin-top: -36px" onclick="op('5')">Поддержка</div><![endif]-->
+	<div class="tabs_contLeft">
+		<div id="tab_cc5">
+			<!-- ul>
+				<li>Lorem Ipsum</li>
+				<li>when an unknown</li>
+				<li>printing and typesetting</li>
+				<li>specimen book</li>
+				<li>dummy text of the</li>
+			</ul-->
+			<ul>
+				<label class="menuacc" ><li><a href = "/account/payment/webmoney_merchant" {% if payment_page %} class ="selected" {% endif %}>Пополнение баланса</a></li></label>
+				<label class="menuacc"><li><a href = "/account/write_offs_and_account_replenishment"{% if write_off_page %} class ="selected" {% endif %}>Произведенные списания и пополнения счета</a></li></label>
+				<label class="menuacc"><li><a href = "/account/priority_of_services"{% if priority_write_off %} class ="selected" {% endif %}>Приоритет списания денежных средств</a></li></label>
+			</ul>
+		</div>
+	</div>
+
+	<!-- label class="radioleft" for="tab_6left" id="tab_l6left">Поддержка</label-->
+	<!--[if IE 8]><div class="radioleft" style="margin-top: -37px" onclick="op('6')">Финансы</div><![endif]-->
+	<!-- div class="tabs_contLeft">
+		<div id="tab_cc6">
+			<ul>
+				<li>but also the leap</li>
+				<li>typesetting industry</li>
+				<li>remaining essentially</li>
+				<li>electronic typesetting</li>
+				<li>has been the</li>
+				<label class="menuacc"><li><a href = "/account/helpdesk">Поддержка сайта</a></li></label>
+			</ul>
+		</div>
+	</div-->
+	
+	<div style="clear:both"></div>
+</div>

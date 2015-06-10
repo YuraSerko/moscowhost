@@ -1,0 +1,100 @@
+{% extends 'base_public.html' %}
+{% load form_tags i18n %}
+{% load i18n page_tags form_tags %}
+
+{% block content %}
+
+{% if site != 3 %}
+    {% if header %}
+        <h1 class="title">{{ header }}</h1>
+    {% else %}
+        <h1 class="title">Покупка карты</h1>
+    {% endif %}
+{{ block.super }}
+{% endif %}
+
+
+{% if site == 3 %}
+<style type="text/css">
+   
+
+</style>
+{% block sendin %}
+    {{block.super}}
+{% endblock %}
+
+  <article id="right">
+    <div id='centr_field'>
+
+    {% block cap %}
+    {{block.super}}
+{% endblock %}
+<h1 class="title" style="float: none;">Оплата карты c помощью Qiwi</h1>
+    {% if notifications %}
+        {% for message in notifications %}
+                            <div class="status status-{{ message.tags }}">
+                                <i class="ico"></i>
+                                <div class="status-i">
+                                    <p>{{ message }}</p>
+                                </div>
+                            </div>
+                        {% endfor %}
+    {% endif %}
+
+{% endif %}
+
+
+
+{% if qiwi_form %}
+
+    
+    <form method="POST" action="#">
+    	<div class="popup-form payment-card">
+            {% for field in qiwi_form %}
+                {% form_field field block %}
+            {% endfor %}
+            <div class="form-submit-right">
+                <input class="bt bt-blue2" type="submit" name="submit" value="Отправить" />
+            </div>
+        </div>
+	</form>
+
+ 
+{% else %}
+
+
+
+<p class="success">Счёт удачно создан. После оплаты счета на указанный e-mail, в течении нескольких минут придет логин и пароль Вашей карты с информацией по активации. Для оплаты счета пройдите по <a href="{{ payment_url }}" target="_blank">ссылке</a>.</p>
+
+<table class="data" style="width: 50%; margin-left: 150px;">
+<tr>
+<td>ID счета</td><td>{{ invoice_id }}</td>
+</tr>
+<tr>
+<td>Сумма счета</td><td>{{ invoice_summ }}</td>
+</tr>
+<tr>
+<td>Дата выставления</td><td>{{ invoice_date }}</td>
+</tr>
+</table>
+<p></p>
+<form method="POST" action="{{ payment_url }}" target="_blank" style="margin-left: 20px;margin-top: 50px; margin-bottom: 50px">
+<div class="submit-row" style="margin-left: -20px;margin-top: 50px;">
+<input class="default" type="submit" name="submit" value="Оплатить" />
+</form>
+</div>
+{% endif %}
+
+
+{% if site == 3 %}
+    </article>
+    </div>
+{% endif %}
+
+
+{% endblock %}
+
+
+{% block title %}
+    Покупка карты предоплаты
+{% endblock %}

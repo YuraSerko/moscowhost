@@ -1,0 +1,101 @@
+# coding: utf-8
+import sys, os
+import time
+from grab import Grab
+from lxml import html
+import urllib2, urllib
+from BeautifulSoup import BeautifulSoup
+import logging
+import traceback
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome' 
+from grab import Grab
+from hotspot.models import Video, VideoGenre
+
+
+### Кинопоиск
+from hotspot.models import Video
+from xml.dom.minidom import *
+for name in Video.objects.all():
+    #name = Video.objects.get(id = 9939 )
+
+    if name.title:
+        title = name.title
+    elif name.orig_title:
+        title = name.orig_title
+    #else:
+    #    break;
+    logging.disable(logging.CRITICAL)
+    g = Grab()
+    g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+    #time.sleep(5)
+    try:
+        g.go('http://www.kinopoisk.ru/index.php?first=no&what=&kp_query=%s'%(urllib.quote(title.encode('utf-8') ) ))
+        soup = BeautifulSoup(g.response.body)
+    except Exception, e:
+        print e
+
+    try:
+        for year in soup.find('div', {'class':'element most_wanted'}).find('p', {'class':'name'}).findAll('span'):
+            year = year.contents[0][:4]
+            print year
+            
+        #exist = name.premiere_date.find(str(year) )
+        print title.encode('utf-8')
+        #print str(year)
+        #print str(int(year)-1)
+        try:
+            #print name.premiere_date.find(str(year) )
+            #print name.premiere_date.find(str(int(year)+1) )
+            if not name.premiere_date.find(str(year) ) == -1 or not name.premiere_date.find(str(int(year)+1) ) == -1:
+                name.year = year
+                try:
+                    for link in soup.find('div', {'class':'element most_wanted'}).find('p', {'class':'name'}).findAll('a'):
+                        film_id = link.get('href').replace('/level/1/film/', '').replace('/sr/1/', '')
+                        #print film_id
+                        name.rating = film_id
+                        try:
+                            g.go('http://www.kinopoisk.ru/film/%s/'%( film_id ) )
+                            page_img = BeautifulSoup(g.response.body)
+                        except Exception, e:
+                            print traceback.print_exc()
+                        try:
+                            for img_link in page_img.find('a', {'class':'popupBigImage'}).findAll('img'):            
+                                if img_link.get('src') and str(img_link.get('src')).find('poster_none') == -1:
+                                        name.image_link = img_link.get('src')
+                        except Exception, e:
+                            print traceback.print_exc() # Нет изображения 
+                        ### XML Кинопоиск
+                        
+                        kino_xml_url = 'http://rating.kinopoisk.ru/%s.xml'%( int(film_id) )
+                        logging.disable(logging.CRITICAL)
+                        g = Grab()
+                        g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+                        try:
+                            g.go(kino_xml_url)
+                            xmldoc=xml.dom.minidom.parseString(g.response.body )
+                            root=xmldoc.documentElement
+                            #print g.response.body 
+                            imdb_rating = False
+                            kp_rating = False
+                            for node in root.childNodes:
+                                if node.nodeName=='kp_rating':
+                                    kp_rating =  node.childNodes[0].nodeValue
+                                    num_vote_kp = node.getAttribute('num_vote')
+                                    name.kp_rating = kp_rating+" "+"("+num_vote_kp+")"
+                                if node.nodeName=='imdb_rating':
+                                    imdb_rating = node.childNodes[0].nodeValue
+                                    num_vote = node.getAttribute('num_vote')
+                                    name.imdb_rating = imdb_rating+" "+"("+num_vote+")"
+            
+                            name.save()
+                            print kp_rating
+                        except Exception, e:
+                            print traceback.print_exc()
+                except Exception, e:
+                    print traceback.print_exc()
+        except Exception, e:
+            print traceback.print_exc()
+    except Exception, e: # Если имя и оригинальное имя отсутствуют, т.е 
+        print traceback.print_exc()

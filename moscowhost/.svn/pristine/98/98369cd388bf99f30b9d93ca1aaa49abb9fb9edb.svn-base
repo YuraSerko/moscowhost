@@ -1,0 +1,621 @@
+# -*- coding: utf-8 -*-
+import sys, os
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_mobi'
+import urllib
+from xml.dom import minidom
+import urllib
+import xml.etree.ElementTree as etree
+import datetime
+from datetime import timedelta
+from hotspot.models import MainNews
+from lib.mail import send_email
+from django.contrib.auth.models import User
+from settings_mobi import  MEDIA_PATH
+import shutil
+import time
+import traceback
+from xml.parsers.expat import ExpatError
+
+IMAGE_NEWS_ROOT = MEDIA_PATH + "/img_news"
+print IMAGE_NEWS_ROOT
+# exit()
+import logging
+
+rootLogger = logging.getLogger()
+logging.disable(logging.DEBUG) # Очистка от сообщений БД
+logFormatter = logging.Formatter("%(filename)s[LINE:%(lineno)d]# %(levelname)-8s [%(asctime)s]  %(message)s")
+fileHandler = logging.FileHandler("rss_parsing.log") # Логирование в отдельный файл
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+description_news = None
+
+
+def send_err_mail(rss_res, err):
+    logging.info(err)
+    message = u''' 
+                       RSS ресурс: %(rss_res)s
+                           Ошибка: %(err)s
+                             Дата: %(date)s                      
+                            
+                '''
+    message = message % { 'rss_res' : rss_res,
+                         'err' : err,
+                         'date' :  datetime.datetime.now()
+                                                     }
+    #===========================================================================
+    # users = User.objects.filter(groups__id=2, is_active=True)
+    # email_list = []
+    # for user in users:
+    #     email_list.append(user.email)
+    # send_email('Ошибка при загрузке новостей', message, u'Globalhome.mobi', email_list)
+    #===========================================================================
+    email_list = ['noc@globalhome.su']
+    send_email('Ошибка при загрузке новостей', message, u'Globalhome.mobi', email_list) # Раскомментить ! ! !
+
+
+def ria_ru_pars():
+    global description_news
+    print 'ria start - %s' % datetime.datetime.now()
+    # http://ria.ru/
+    try:
+        url_list_ria = ['politics', 'sport', 'science', 'culture', 'world', 'economy', 'moscow']
+        type_dict = {'politics':u'politics',
+                     'sport':u'sport',
+                     'science':u'science',
+                     'culture':u'culture',
+                       'moscow':u'rus',
+                       'world':u'world',
+                       'economy':u'economy'}
+
+        for ria_url in url_list_ria:
+            type = type_dict[ria_url]
+            sURL = "http://ria.ru/export/rss2/%s/index.xml" % ria_url
+            u = urllib.urlopen(sURL)
+
+            dicXMLNodes = {}
+            xmldoc = minidom.parseString(u.read())
+
+            root = xmldoc.documentElement
+
+            for rss_ria in root.childNodes:
+                if rss_ria.nodeName == '#text':
+                    continue
+                for rss_items in rss_ria.childNodes:
+                    if rss_items.nodeName == 'title':
+                        title = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'link':
+                        link = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'description':
+                        description = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'copyright':
+                        copyright = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'item':
+                        try:
+                            qe = rss_items.getElementsByTagName('link')[0].childNodes[0].nodeValue
+                            qe_obj = MainNews.objects.get(link_news=qe)
+                            if qe_obj:
+                                continue
+                        except:
+                            
+                            img_name = 'portal_img/ria_logo.png'
+                            for rss_item in rss_items.childNodes:
+                                news_img = ''
+                                if  rss_item.nodeName == 'rian:priority':
+                                    continue
+                                if rss_item.nodeName == 'enclosure':
+                                    news_img = rss_item.getAttribute('url')
+                                    if news_img != 'undefined':
+                                        try:
+                                            spl_news_img = news_img.split('/')
+                                            img_name = '%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            full_img_path = IMAGE_NEWS_ROOT + '/%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            urllib.urlretrieve(news_img, full_img_path)
+                                        except:
+                                            img_name = 'portal_img/ria_logo.png'
+
+
+
+                                    continue
+                                if rss_item.nodeName == 'description':
+                                    if rss_item.childNodes:
+                                        description_news = rss_item.childNodes[0].nodeValue
+                                    continue
+                                dicXMLNodes[rss_item.nodeName] = rss_item.childNodes[0].nodeValue
+        #                     for key, value in dicXMLNodes.iteritems():
+        #                         print key, value
+                             
+                            newe_object = MainNews(
+                                                    title_news=dicXMLNodes['title'],
+                                                    discription_news=description_news,
+                                                    link_news=dicXMLNodes['link'],
+                                                    img_news=news_img,
+                                                    portal_name=title,
+                                                    portal_link=link,
+                                                    portal_diskription=description,
+                                                    portal_copyright=copyright,
+                                                    news_type=type,
+                                                    img_news_root=img_name
+
+                                                   )
+                            newe_object.save()
+                        dicXMLNodes = {}
+    except Exception, e:
+        err = traceback.format_exc()
+        send_err_mail(u'Риа новости', err)
+    print 'ria end- %s' % datetime.datetime.now()
+
+def lenta_ru_pars():
+    print 'lenta start- %s' % datetime.datetime.now()
+    # http://lenta.ru/
+    try:
+        type_dict = {
+                     u'Бывший СССР':u'politics',
+                     u'Россия':u'rus',
+                     u'Мир':u'world',
+                     u'Наука и техника':u'science',
+                     u'Культура':u'culture',
+                     u'Экономика':u'economy'}
+
+
+        u = urllib.urlopen("http://lenta.ru/rss")
+        str_u = u.read()
+        dicXMLNodes = {}
+        try:
+            xmldoc = minidom.parseString(str_u)
+        except ExpatError:
+            str_u = str_u.replace('', '')
+            xmldoc = minidom.parseString(str_u)
+
+        root = xmldoc.documentElement
+        for rss_lenta in root.childNodes:
+            if rss_lenta.nodeName == '#text':
+                   continue
+            for rss_items in rss_lenta.childNodes:
+                if rss_items.nodeName == '#text':
+                   continue
+                if rss_items.nodeName == 'title':
+                    title = rss_items.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'link':
+                    link = rss_items.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'description':
+                    description = rss_items.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'image':
+                   for img in rss_items.childNodes:
+                       if img.nodeName == 'url':
+                           portal_image = img.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'item':
+                    try:
+                            qe = rss_items.getElementsByTagName('link')[0].childNodes[0].nodeValue
+                            qe_obj = MainNews.objects.get(link_news=qe)
+                            if qe_obj:
+                                continue
+                    except:
+                        attempt = 3
+                        exist = False
+                        while(not attempt == 0):
+                            try:
+                                exist = rss_items.getElementsByTagName('category')[0].childNodes[0].nodeValue
+                                break
+                            except IndexError:
+                                time.sleep(3)
+                                attempt -= 1
+                        if exist in  type_dict:
+                            news_img = ''
+                            for rss_item in rss_items.childNodes:
+                                if rss_item.nodeName == '#text':
+                                    continue
+                                if rss_item.nodeName == 'category':
+                                    if not rss_item.childNodes[0].nodeValue in type_dict:
+                                        continue
+                                    else:
+                                        type = type_dict[rss_item.childNodes[0].nodeValue]
+                                if rss_item.nodeName == 'enclosure':
+                                    news_img = rss_item.getAttribute('url')
+                                    if news_img != 'undefined':
+                                        try:
+                                            spl_news_img = news_img.split('/')
+                                            img_name = '%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            full_img_path = IMAGE_NEWS_ROOT + '/%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            urllib.urlretrieve(news_img, full_img_path)
+                                        except:
+                                            img_name = 'portal_img/logo_lenta.png'
+                                    continue
+                                if rss_item.nodeName == 'description':
+                                    for desc in rss_item.childNodes:
+                                        if desc.nodeName == '#text':
+                                            continue
+                                        if desc.nodeName == '#cdata-section':
+                                            description_news = desc.nodeValue
+                                        continue
+                                dicXMLNodes[rss_item.nodeName] = rss_item.childNodes[0].nodeValue
+        #                         for key, value in dicXMLNodes.iteritems():
+        #                             print key, value
+
+
+                        else:
+                            continue
+
+                        if news_img:
+                            news_img = news_img
+                            img_name = img_name
+                        else:
+                            news_img = portal_image
+                            img_name = 'portal_img/logo_lenta.png'
+
+
+                        newe_object = MainNews(
+                                                    title_news=dicXMLNodes['title'],
+                                                    discription_news=description_news,
+                                                    link_news=dicXMLNodes['link'],
+                                                    img_news=news_img,
+                                                    portal_name=title,
+                                                    portal_link=link,
+                                                    portal_diskription=description,
+                                                    portal_copyright=title,
+                                                    news_type=type,
+                                                    img_news_root=img_name
+
+
+                                                   )
+                        newe_object.save()
+                        dicXMLNodes = {}
+        print 'lenta end- %s' % datetime.datetime.now()
+    except Exception, e:
+        err = traceback.format_exc()
+        send_err_mail('lenta.ru', err)
+
+
+
+
+# def rbc_ru_pars():
+#     print 'rbc start - %s' % datetime.datetime.now()
+#     u=urllib.urlopen("http://static.feed.rbc.ru/rbc/internal/rss.rbc.ru/rbcdaily.ru/mainnews.rss")
+#     dicXMLNodes={}
+#     xmldoc=minidom.parseString(u.read())
+#     root=xmldoc.documentElement
+#     for rss_rbc in root.childNodes:
+#         for rss_items in rss_rbc.childNodes:
+#             if rss_items.nodeName=='title':
+#                 title = rss_items.childNodes[0].nodeValue
+#             elif rss_items.nodeName=='link':
+#                 link = rss_items.childNodes[0].nodeValue
+#             elif rss_items.nodeName=='description':
+#                 description = rss_items.childNodes[0].nodeValue
+#             elif rss_items.nodeName=='image':
+#                for img in rss_items.childNodes:
+#                    if img.nodeName == 'url':
+#                        portal_img = img.childNodes[0].nodeValue
+#             elif rss_items.nodeName == 'item':
+#                     for rss_item in rss_items.childNodes:
+#                         if rss_item.nodeName == 'description':
+#                             discription_news = rss_item.childNodes[0].nodeValue
+#                             continue
+#                         dicXMLNodes[rss_item.nodeName] = rss_item.childNodes[0].nodeValue
+#
+#                     newe_object = MainNews(
+#                                         title_news=dicXMLNodes['title'],
+#                                         discription_news=discription_news,
+#                                         link_news=dicXMLNodes['link'],
+#                                         portal_name=title,
+#                                         portal_link=link,
+#                                         portal_diskription=description,
+#                                         portal_copyright=title
+#                                        )
+#                     newe_object.save()
+#                     dicXMLNodes={}
+#
+#
+#     print 'rbc end - %s' %datetime.datetime.now()
+#     lenta_ru_pars()
+
+
+
+def kp_ru_pars():
+    try:
+        print 'kp start - %s' % datetime.datetime.now()
+        url_list_kp = ['politics', 'sport', 'science', 'culture', 'economics', ]
+        type_dict = {'politics':u'politics',
+                     'sport':u'sport',
+                     'science':u'science',
+                     'culture':u'culture',
+                    'economics':u'economy'}
+        for kp_url in url_list_kp:
+            type = type_dict[kp_url]
+            sURL = "http://www.kp.ru/rss/msk-%s.xml" % kp_url
+            u = urllib.urlopen(sURL)
+            dicXMLNodes = {}
+            xmldoc = minidom.parseString(u.read())
+            root = xmldoc.documentElement
+            for rss_kp in root.childNodes:
+                if rss_kp.nodeName == '#text':
+                    continue
+                for rss_items in rss_kp.childNodes:
+
+                    if rss_items.nodeName == '#text':
+                        continue
+
+                    elif rss_items.nodeName == 'title':
+                        title = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'link':
+                        link = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'description':
+                        description = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'image':
+                        portal_img = rss_items.getElementsByTagName('url')[0].childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'item':
+                        try:
+                            qe = rss_items.getElementsByTagName('link')[0].childNodes[0].nodeValue
+                            qe_obj = MainNews.objects.get(link_news=qe)
+                            if qe_obj:
+                                continue
+                        except:
+                            img_name = 'portal_img/logo_kp.gif'
+                            news_img = portal_img
+                            for rss_item in rss_items.childNodes:
+                                if rss_item.nodeName == '#text':
+                                        continue
+                                if rss_item.nodeName == 'enclosure':
+                                    news_img = rss_item.getAttribute('url')
+                                    if news_img != 'undefined':
+                                        try:
+                                            spl_news_img = news_img.split('/')
+                                            img_name = '%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            full_img_path = IMAGE_NEWS_ROOT + '/%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            urllib.urlretrieve(news_img, full_img_path)
+                                        except:
+                                            img_name = 'portal_img/logo_kp.gif'
+                                    continue
+                                dicXMLNodes[rss_item.nodeName] = rss_item.childNodes[0].nodeValue
+                            newe_object = MainNews(
+                                                title_news=dicXMLNodes['title'],
+                                                discription_news=dicXMLNodes['description'],
+                                                link_news=dicXMLNodes['link'],
+                                                img_news=news_img,
+                                                portal_name=title,
+                                                portal_link=link,
+                                                portal_diskription=description,
+                                                portal_copyright=title,
+                                                news_type=type,
+                                                img_news_root=img_name
+                                               )
+                            newe_object.save()
+                            dicXMLNodes = {}
+
+        print 'kp end - %s' % datetime.datetime.now()
+    except Exception, e:
+        err = traceback.format_exc()
+        send_err_mail('kp.ru', err)
+
+
+
+def infox_ru_parse():
+    print 'infox start - %s' % datetime.datetime.now()
+    try:
+        url_list_infox = ['authority', 'sport', 'science', 'afisha', 'wallet', 'auto']
+        type_dict = {'authority':u'politics',
+                     'sport':u'sport',
+                     'science':u'science',
+                     'afisha':u'culture',
+                    'wallet':u'economy',
+                    'auto':u'auto'}
+        for infox_url in url_list_infox:
+            type = type_dict[infox_url]
+            sURL = "http://www.infox.ru/themes/%s/rss.xml" % infox_url
+            u = urllib.urlopen(sURL)
+            dicXMLNodes = {}
+            xmldoc = minidom.parseString(u.read())
+            root = xmldoc.documentElement
+            for rss_infox in root.childNodes:
+                if rss_infox.nodeName == '#text':
+                    continue
+                for rss_items in rss_infox.childNodes:
+                    if rss_items.nodeName == '#text':
+                        continue
+                    elif rss_items.nodeName == 'title':
+                        title = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'link':
+                        link = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'description':
+                        description = rss_items.childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'image':
+                        portal_img = rss_items.getElementsByTagName('url')[0].childNodes[0].nodeValue
+                    elif rss_items.nodeName == 'item':
+                        try:
+                            qe = rss_items.getElementsByTagName('link')[0].childNodes[0].nodeValue
+                            qe_obj = MainNews.objects.get(link_news=qe)
+                            if qe_obj:
+                                continue
+                        except:
+                            news_img = ''
+                            for rss_item in rss_items.childNodes:
+                                if rss_item.nodeName == '#text':
+                                    continue
+                                if rss_item.nodeName == 'enclosure':
+                                    news_img = rss_item.getAttribute('url')
+                                    if news_img != 'undefined':
+                                        try:
+                                            spl_news_img = news_img.split('/')
+                                            img_name = '%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            full_img_path = IMAGE_NEWS_ROOT + '/%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            urllib.urlretrieve(news_img, full_img_path)
+                                        except:
+                                            img_name = 'portal_img/infox_logo.gif'
+                                    else:
+                                        continue
+                                    continue
+                                dicXMLNodes[rss_item.nodeName] = rss_item.childNodes[0].nodeValue
+                            if news_img:
+                                news_img = news_img
+                                img_name = img_name
+                            else:
+                                news_img = portal_img
+                                img_name = 'portal_img/infox_logo.gif'
+
+                            newe_object = MainNews(
+                                                title_news=dicXMLNodes['title'],
+                                                discription_news=dicXMLNodes['description'],
+                                                link_news=dicXMLNodes['link'],
+                                                img_news=news_img,
+                                                portal_name=title,
+                                                portal_link=link,
+                                                portal_diskription=description,
+                                                portal_copyright=title,
+                                                news_type=type,
+                                                img_news_root=img_name
+                                               )
+                            newe_object.save()
+                            dicXMLNodes = {}
+
+
+
+        print 'infox end - %s' % datetime.datetime.now()
+    except Exception, e:
+        err = traceback.format_exc()
+        send_err_mail('infox.ru', err)
+
+
+def itar_tas_ru_parse():
+    try:
+        type_dict = {
+                     u'Политика':u'politics',
+                     u'Международная панорама':u'world',
+                     u'Наука':u'science',
+                     u'Культура':u'culture',
+                     u'Экономика и бизнес':u'economy',
+                     u'Спорт':u'sport'}
+
+        print 'tass start - %s' % datetime.datetime.now()
+        u = urllib.urlopen("http://itar-tass.com/rss/v2.xml")
+        dicXMLNodes = {}
+        xmldoc = minidom.parseString(u.read())
+        root = xmldoc.documentElement
+        for rss_itar in root.childNodes:
+            for rss_items in rss_itar.childNodes:
+
+                if rss_items.nodeName == '#text':
+                        continue
+
+                elif rss_items.nodeName == 'title':
+                        title = rss_items.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'link':
+                    link = rss_items.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'description':
+                    description = rss_items.childNodes[0].nodeValue
+                elif rss_items.nodeName == 'image':
+                    portal_img = rss_items.getElementsByTagName('url')[0].childNodes[0].nodeValue
+                elif rss_items.nodeName == 'item':
+                    try:
+                        qe = rss_items.getElementsByTagName('link')[0].childNodes[0].nodeValue
+                        qe_obj = MainNews.objects.get(link_news=qe)
+                        if qe_obj:
+                            continue
+                    except:
+
+                        if  rss_items.getElementsByTagName('category')[0].childNodes[0].nodeValue in  type_dict:
+                            type = type_dict[rss_items.getElementsByTagName('category')[0].childNodes[0].nodeValue]
+                            news_img = ''
+                            for rss_item in rss_items.childNodes:
+                                if rss_item.nodeName == '#text':
+                                    continue
+                                elif rss_item.nodeName == 'title':
+                                    for tit in rss_item.childNodes:
+                                        news_title = tit.nodeValue
+                                    continue
+                                elif rss_item.nodeName == 'description':
+                                    for desc in rss_item.childNodes:
+                                        description_news = desc.nodeValue
+                                    continue
+                                elif rss_item.nodeName == 'category':
+                                    continue
+                                elif rss_item.nodeName == 'enclosure':
+                                    news_img = rss_item.getAttribute('url')
+                                    if news_img != 'undefined':
+
+                                        try:
+
+                                            spl_news_img = news_img.split('/')
+                                            img_name = '%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])  # spl_news_img[len(spl_news_img)-1]
+                                            full_img_path = IMAGE_NEWS_ROOT + '/%s/%s' % (datetime.datetime.now().date(), spl_news_img[len(spl_news_img) - 1])
+                                            try:
+                                                urllib.urlretrieve(news_img, full_img_path)
+                                            except:
+                                                os.mkdir(IMAGE_NEWS_ROOT + '/%s' % datetime.datetime.now().date())
+                                                urllib.urlretrieve(news_img, full_img_path)
+                                        except:
+                                            img_name = 'portal_img/logo_tass.jpg'
+                                    continue
+                                dicXMLNodes[rss_item.nodeName] = rss_item.childNodes[0].nodeValue
+                                if news_img:
+                                    news_img = news_img
+                                    img_name = img_name
+                                else:
+                                    news_img = portal_img
+                                    img_name = 'portal_img/logo_tass.jpg'
+                        else:
+                            continue
+
+                        newe_object = MainNews(
+                                                    title_news=news_title,
+                                                    discription_news=description_news,
+                                                    link_news=dicXMLNodes['link'],
+                                                    img_news=news_img,
+                                                    portal_name=title,
+                                                    portal_link=link,
+                                                    portal_diskription=description,
+                                                    portal_copyright=title,
+                                                    news_type=type,
+                                                    img_news_root=img_name
+                                                   )
+                        newe_object.save()
+                        dicXMLNodes = {}
+        print 'tass end - %s' % datetime.datetime.now()
+    except Exception, e:
+        err = traceback.format_exc()
+        send_err_mail('itar-tas', err)
+
+
+def del_info():
+    print 'del_info start %s ' % datetime.datetime.now()
+    dte = datetime.datetime.now() - datetime.timedelta(days=1)
+    try:
+        n_obj = MainNews.objects.filter(date_get_news__lt=dte)
+        if n_obj:
+            dir_name_list = n_obj.distinct('date_get_news')
+            for dir_name in dir_name_list:
+                shutil.rmtree(IMAGE_NEWS_ROOT + '/%s' % dir_name.date_get_news)
+                print 'folders delete %s' % dir_name.date_get_news
+            n_obj.delete()
+
+        print 'del_info end %s ' % datetime.datetime.now()
+    except Exception, e:
+        err = traceback.format_exc()
+        send_err_mail('del_info', err)
+
+
+
+def main():
+    del_info()
+    itar_tas_ru_parse()
+    infox_ru_parse()
+    kp_ru_pars()
+    lenta_ru_pars()
+    ria_ru_pars()
+    print'all functions end - %s' % datetime.datetime.now()
+
+
+#--------------------------------------------------------------------------------------------------
+if __name__ == '__main__':
+    main()
+    time.sleep(10)
+    main()
+    time.sleep(10)
+    main()
+    time.sleep(10)
+    main()
+    time.sleep(10)
+    main()
+    sys.exit()
+
+#--------------------------------------------------------------------------------------------------

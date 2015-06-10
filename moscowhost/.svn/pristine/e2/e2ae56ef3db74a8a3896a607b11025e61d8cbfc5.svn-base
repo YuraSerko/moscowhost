@@ -1,0 +1,9 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags lib_tags %}
+
+{% block acc_main %}
+	{{ article.text|safe }}
+
+	
+
+{% endblock %}

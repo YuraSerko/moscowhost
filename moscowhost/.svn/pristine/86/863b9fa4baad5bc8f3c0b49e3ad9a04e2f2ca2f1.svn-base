@@ -1,0 +1,25 @@
+# coding: utf8
+from django import forms
+from django.utils.translation import ugettext_lazy as _
+SYSTEM_TYPE = (
+    ('', u'------'),
+    (u'MegafonR', u'МЕГАФОН'),
+    (u'MtsR', u'МТС'),
+    #(u'MobicomBeelineR', u'БИЛАЙН'),
+)
+
+class robokassa_money(forms.Form):
+    money = forms.IntegerField(label=u'Cумма')
+    operator = forms.ChoiceField(label=u'Мобильный оператор', choices=SYSTEM_TYPE, required=True)
+
+
+class RKPaymentRequestFormCard(forms.Form):
+    amount = forms.IntegerField(required=True, min_value=10, label=u"Сумма для пополнения", help_text=_(u"Укажите сумму в рублях")) #initial=50,
+    operator = forms.ChoiceField(label=u'Мобильный оператор', choices=SYSTEM_TYPE, required=True)
+    phone_sms = forms.IntegerField(required=False, label=u"Номер мобильного телефона для получения логина и пароля карты посредством SMS",
+                                help_text=_(u"(без скобок, пробелов и разделителей. Пример 79991234567)"),
+                                widget=forms.TextInput({'class': 'number'}))
+    email = forms.EmailField(label=_(u'Адрес электронной почты'), required=False, help_text=_(u"На этот адрес вам прийдет логин и пароль приобритаемой карты"))
+    
+
+

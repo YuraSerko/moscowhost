@@ -1,0 +1,141 @@
+#!/usr/bin/python
+# coding: utf-8
+#import sys, os
+#sys.path[0] = '../'
+#os.environ['DJANGO_SETTINGS_MODULE'] = 'settings'
+
+def connect(x):
+    from lib.esl import ESL
+    from settings import FREESWITCH
+    circle_ip2 = FREESWITCH['fs'+str(x)]['SSH_HOST']
+    circle_sip_port2 = '5070'
+    HOST = FREESWITCH['fs'+str(x)]['SSH_HOST']
+    PORT = FREESWITCH['fs'+str(x)]['ESL_PORT']
+    PASSWORD = FREESWITCH['fs'+str(x)]['ESL_PASSWORD']
+    con = ESL.ESLconnection(HOST, PORT, PASSWORD)
+    return con, circle_ip2, circle_sip_port2
+
+def take_event(from_numb, to_numb, add, file_name, id_obzvon, i, cur, dtmf, wait_dtmf, count_call, number_ivr, min_time, max_time, max_min_time_enabled):
+    import time
+    from datetime import datetime
+    from datetime import timedelta
+    cur.execute("""SELECT status FROM user_obzvon WHERE id=%s""" % (id_obzvon,))
+    if cur.fetchone()[0] == 4:
+        exit()
+
+    if max_min_time_enabled:
+        time = datetime.now().time() # получаем время дня для проверки
+        if not (time >= min_time and time < max_time):
+            try:
+                from crontab import CronTab
+                from fs.tasks import delayed_function
+                from celery.task.control import revoke
+            except:
+                pass
+            print time
+            print min_time
+            print max_time
+            print "not time now" # здесь надо сделать запуск обзвона в уже разрешенное ввремя
+            #if one_times:
+            today = datetime.now().date() + timedelta(days=1)
+            today = datetime.combine(today, min_time)
+            delayed_function.apply_async((id_obzvon, 'post'), eta=today)
+            zapr = """UPDATE user_obzvon SET status=4, date_start = '%s' where id='%s';""" % (today, id_obzvon)
+            cur.execute(zapr)
+            exit()
+
+    """Data for esl"""
+    x = 1
+    flah = False
+    dict_cause = {"USER_BUSY":"Номер занят","NO_USER_RESPONSE":"Не доступен","NO_ANSWER":"Не отвечает","ANSWER":"Ответил","ALLOTTED_TIMEOUT":"Ответил"}
+    code_cause = {"486":"Номер занят","480":"Не доступен","480_1":"Не отвечает"}
+    #are we connected?
+    while x < 3:
+        con, circle_ip, circle_sip_port = connect(x)
+        try:
+            jon = con.sendRecv('api status')
+            if jon.getBody():
+                print "Connected!"
+                flah = True
+                x = 3
+        except Exception, e:
+            x = x + 1
+            flah = False
+
+    if con.connected and flah:
+        con.events("plain", "all");
+        str_for_send_dtmf = ""
+        str_for_send_dtmf2 = ""
+        if add:
+            str_for_send_dtmf = "obzvon_dtmf_interactive\sXML\sfeatures"
+            dtmfmy = "_d,dtmf=%s" % (add,)
+            str_for_send_dtmf2 = "obzvon_dtmf\sXML\sfeatures"
+        else:
+            str_for_send_dtmf = "obzvon_with_inter\sXML\sfeatures"
+            dtmfmy = ""
+            str_for_send_dtmf2 = "obzvon\sXML\sfeatures"
+        if dtmf:
+            print "dtmf True"
+            print dtmf
+            if number_ivr:
+                res = con.bgapi("originate", "[origination_caller_id_number=%s,ignore_early_media=true,wait_time=%s,id_obzvon=%s,file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s\sXML\sobzvon_ivr,obzvon=ivr_dtmf,id_ivr=%s]sofia/circle/%s@%s:%s &park()" % (from_numb, wait_dtmf, str(i), file_name, number_ivr, number_ivr, to_numb, circle_ip, circle_sip_port))
+                print "[origination_caller_id_number=%s,ignore_early_media=true,wait_time=%s,id_obzvon=%s,file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s\sXML\sobzvon_ivr,obzvon=ivr_dtmf,id_ivr=%s]sofia/circle/%s@%s:%s &park()" % (from_numb, wait_dtmf, str(i), file_name, number_ivr, number_ivr, to_numb, circle_ip, circle_sip_port)
+            else:
+                res = con.bgapi("originate", "[origination_caller_id_number=%s,ignore_early_media=true,wait_time=%s,id_obzvon=%s,file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s,obzvon=yes_dtmf%s]sofia/circle/%s@%s:%s &park()" % (from_numb, wait_dtmf, str(i), file_name, str_for_send_dtmf, dtmfmy, to_numb, circle_ip, circle_sip_port))
+        else:
+            print "tyt1 False"
+            print dtmf
+            res = con.bgapi("originate", "[origination_caller_id_number=%s,ignore_early_media=true,id_obzvon='%s',file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s,obzvon=no_dtmf%s]sofia/circle/%s@%s:%s &park()" % (from_numb, str(i), file_name, str_for_send_dtmf2, dtmfmy, to_numb, circle_ip, circle_sip_port))
+        stay_connected = 1
+
+        zapr = """UPDATE user_obzvon_number SET status = 'Обзванивается' WHERE id='%s';""" % (str(i))
+        cur.execute(zapr)
+        while stay_connected == 1:
+            e = con.recvEvent()
+            if e:
+                ev_name = e.getHeader("Event-Name")
+
+                if ev_name == 'CHANNEL_DESTROY':
+                    #print e.serialize()
+                    if e.getHeader("variable_id_obzvon") == str(i):
+                        print "NAWOL SVOI ID_OBZVON"
+                        #print e.serialize()
+                        code_disc = e.getHeader("variable_sip_term_status")
+                        result = e.getHeader("variable_endpoint_disposition")
+                        billsec = e.getHeader("variable_billsec")
+                        hangup_cause = e.getHeader("variable_hangup_cause")
+                        digits = e.getHeader("variable_digits")
+                        duration = e.getHeader("variable_duration")
+                        print "code: %s" % code_disc
+                        print "duration: %s" % duration
+                        print "result %s" % result
+                        print "billsec %s" % billsec
+                        print "hangup_cause %s" % hangup_cause
+                        if (hangup_cause == "NORMAL_CLEARING" or hangup_cause == "NO_ROUTE_DESTINATION") and result == "ANSWER":
+                            print result
+                            zapr = """UPDATE user_obzvon_number SET status = '%s', answer_time='%s', digits='%s' WHERE id='%s';""" % (dict_cause[result], billsec, digits, str(i))
+                            cur.execute(zapr)
+                            stay_connected = 0
+                        else:
+                            if (hangup_cause in ["USER_BUSY", "NO_USER_RESPONSE", "NO_ANSWER", "NORMAL_CLEARING"] and int(count_call)>1):
+                                print count_call
+                                print "AAAAAAAAAAAAAAAAAa"
+                                if dtmf == "True":
+                                    if number_ivr:
+                                        res = con.bgapi("originate", "[origination_caller_id_number=%s,ignore_early_media=true,wait_time=%s,id_obzvon=%s,file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s\sXML\sobzvon_ivr,obzvon=ivr_dtmf,id_ivr=%s]sofia/circle/%s@%s:%s &park()" % (from_numb, wait_dtmf, str(i), file_name, number_ivr, number_ivr, to_numb, circle_ip, circle_sip_port))
+                                    else:
+                                        res = con.bgapi("originate", "[origination_caller_id_number=%s,ignore_early_media=true,wait_time=%s,id_obzvon=%s,file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s,obzvon=yes_dtmf%s]sofia/circle/%s@%s:%s &park()" % (from_numb, wait_dtmf, str(i), file_name, str_for_send_dtmf, dtmfmy, to_numb, circle_ip, circle_sip_port))
+                                else:
+                                    res = con.bgapi("originate", "[origination_caller_id_number=%s,ignore_early_media=true,id_obzvon=%s,file=/usr/local/sounds/all_files/%s,execute_on_answer=transfer\s%s,obzvon=no_dtmf%s]sofia/circle/%s@%s:%s &park()" % (from_numb, str(i), file_name, str_for_send_dtmf2, dtmfmy, to_numb, circle_ip, circle_sip_port))
+                                count_call = int(count_call) - 1
+                                continue
+                            if hangup_cause != "NORMAL_CLEARING":
+                                zapr = """UPDATE user_obzvon_number SET status = '%s', answer_time='%s', digits='%s' WHERE id='%s';""" % (dict_cause[hangup_cause], billsec, digits, str(i))
+                            else:
+                                if code_disc == '480' and int(duration)>2:
+                                    code_disc = '480_1'
+                                zapr = """UPDATE user_obzvon_number SET status = '%s', answer_time='%s', digits='%s' WHERE id='%s';""" % (code_cause[code_disc], billsec, digits, str(i))
+                            cur.execute(zapr)
+                            stay_connected = 0
+
+        print "tyt ityt"

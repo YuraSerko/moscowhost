@@ -1,0 +1,733 @@
+# coding: utf-8
+
+import sys, os
+#from get_new_video.py import *
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from hotspot.models import Video
+from hotspot.models import VideoGenre
+import requests, json
+import datetime
+import traceback
+import urllib2, urllib, cookielib
+import time
+from BeautifulSoup import BeautifulSoup
+import re
+import trans
+import logging
+from grab import Grab
+from ghost import Ghost
+import PySide
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+# import tempfile
+# from subprocess import Popen
+from pyvirtualdisplay import Display
+from xml.dom.minidom import *
+
+
+list_new_films_id = 1
+
+ 
+ 
+#===============================================================================
+# for id in [10506, 10518]:
+#     print id
+#     v = Video.objects.get(id = id).delete() 
+# sys.exit()
+#===============================================================================
+
+
+#===============================================================================
+# global list_new_films_id
+# def list_gitonline(list):
+#         list_new_films_id = list
+#         return list_new_films_id
+# print list_new_films_id
+#===============================================================================
+
+
+def translit(title, orig_title):
+    # print type(title)
+    if title:
+        # print type(title)
+        translit_video_name = unicode(title).lower().encode('trans')
+    else:
+        translit_video_name = unicode(orig_title).lower().encode('trans')
+    return translit_video_name.replace(' ', '').replace(',', '').replace('-', '').replace(':', '').replace('!', '').replace(u'—', '').replace('.', '').replace('(', '').replace(')', '').replace('?', '')
+
+
+def base_save(orig_title, title, paramd, video_type, genres_list, id_gid_film, serial=False, list_new_films_id = list_new_films_id):
+    try:
+        # print title
+        title = title.encode('utf-8').strip()
+        orig_title = orig_title.strip()
+        paramd["orig_title"] = paramd["orig_title"].strip()
+        paramd["title"] = paramd["title"].strip()
+
+        if orig_title:
+            vname_exist = Video.objects.get(orig_title__exact=orig_title.encode('utf-8'))  # не совпадает оригинальное название и год
+        else:
+            vname_exist = Video.objects.get(title__exact=title)
+        print 'Video: ' + orig_title + '|' + paramd["title"] + u' - uje est v base dannix.'
+        print 'Print log...'
+        logging.info(u'Видео: ' + orig_title + '|' + paramd["title"] + u' - уже есть в базе данных.')
+    except Video.DoesNotExist:
+        print "===== Video.DoesNotExist !!! ====="
+        try:  # Создание уникального поля ranslit_video_name
+            translit_name = translit(paramd["title"], paramd["orig_title"])
+            ob = Video.objects.filter(translit_video_name__exact=translit_name.strip())
+            ob2 = Video.objects.filter(translit_video_name__exact=translit_name.strip() + '_' + '2')
+            ob3 = Video.objects.filter(translit_video_name__exact=translit_name.strip() + '_' + '3')
+            if ob.count() == 1 and not ob2:
+                #print "There are 1  same name"
+                print 'Print log...'
+                logging.info("There are 1  same name")
+                n = '2'
+                #print 'rename field translit_video_name of 2 object... adding number _2 to the end '
+                print 'Print log...'
+                logging.info('rename field translit_video_name of 2 object... adding number _2 to the end ')
+                paramd['translit_video_name'] = str(translit_name) + '_' + n
+            elif ob.count() == 1 and ob2:
+                n = '3'
+                #print 'rename field translit_video_name of 3 object... adding number _3 to the end '
+                print 'Print log...'
+                logging.info('rename field translit_video_name of 3 object... adding number _3 to the end ')
+                paramd['translit_video_name'] = str(translit_name) + '_' + n
+            if ob3:
+                mes = u"Копий поля translit_video_name больше 3-х экземпляров в базе данных."
+                #print mes
+                print 'Print log...'
+                logging.info(mes)
+                send_email('Копии поля translit_video_name', mes, settings.DEFAULT_FROM_EMAIL, ["Zz1n@globalhome.su", 'sales@globalhome.su', 'noc@globalhome.su'])
+            v = Video(source=2, orig_title=paramd["orig_title"], title=paramd["title"],
+                       genres_client_view=paramd["genres_client_view"],
+                       video_type=video_type, player_video_url=paramd["player_video_url"],
+                       image_link=paramd["image_link"], premiere_date=paramd["premiere_date"],
+                       description=paramd["description"],
+                       quality=paramd["quality"],
+                       sound=paramd["sound"],
+                       director=paramd["director"],
+                       cast=paramd["cast"],
+                       time=paramd["time"],
+                       budget=paramd["budget"],
+                       age_restrictions=paramd["age_restrictions"],
+                       screenplay=paramd["screenplay"],
+                       label_text=paramd['label_text'],
+                       one_serial_links=paramd['one_serial_links'],
+                       date_aded=datetime.datetime.now(),
+                       translit_video_name=paramd['translit_video_name'],
+                       year=paramd['year'],
+                       country=paramd['country'],
+                       id_gid_film = id_gid_film
+                       # ,rating = 4
+                      )
+
+            v.save()
+            #paramd["player_video_url"] = ''
+            list_new_films_id.append(v.id) # Объявлен еще в get_new_video.py
+            print "==========After Save==========="
+            print list_new_films_id
+            for gl in genres_list:
+                # print gl
+                vg = VideoGenre(id=gl)
+                # print vg
+                v.genres.add(vg)
+            # sys.exit()
+            v.save()
+
+            #print u"Видео: " + paramd["orig_title"] + u'|', paramd["title"] + u' успешно добавлено'
+            print u"Видео: " + paramd["orig_title"] + u'|'+ paramd["title"] + u' успешно добавлено'
+            print 'Print log...'
+            logging.info(u"Видео: " + paramd["orig_title"] + u'|'+ paramd["title"] + u' успешно добавлено')
+            if serial:
+                return 1
+        except Exception, e:
+            #print u'Ошибка при сохранении видео',
+            print 'Print log...'
+            logging.info(u'Ошибка при сохранении видео')
+            print traceback.print_exc()
+            time.sleep(15)
+
+    except Exception, e:
+        print e
+        if serial:
+            print "serial save"
+            return 1
+        else:
+            pass
+
+
+def Parse_one_page(adres, list_new_films_id):
+    # time.sleep(25)
+    ymka_genre = { 1:u"боевик", 2:u"военн", 3:u"детектив",
+                   4:u"драм", 5:u"истори", 6:u"комеди", 7:u"мелодрам",
+                   8:u"мистика", 9:u"приключен", 10:u"триллер", 11:u"ужасы",
+                   12:u"фантасти", 13:u"вестерн", 14:u"биограф",
+                   15:u"катастроф", 16:u"криминал",
+                   17:u"спорт", 18:u"фэнтэзи", 19:u'артхаус', 20:u'семейный', 21:u'документальный'}  # 13:u"эротика", , 21:u"сказка" 18:u"музыка",
+
+    #===========================================================================
+    # gidonline_genre = { 1:"боевик", 2:"военный", 3:"детектив",
+    #                 4:"драма", 5:"история", 6:"комедия", 7:"мелодрама",
+    #                 8:"мистика", 9:"приключения", 10:"триллер", 11:"ужасы",
+    #                 12:"фантастика", 13:"вестерн", 14:"биография",
+    #                 15:"катастрофа", 16:"криминал",
+    #                 17:"спорт", 18:"фэнтэзи"}
+    #===========================================================================
+    params_match = {u"видео":u"orig_title", u"название":u"title", u"год":u"year", u"страна":u"country",
+                    u"Премьера": u"premiere_date", u"жанр":u"genres_client_view", u"Качество":u"quality",
+                    u"Звук":u"sound", u"Режиссер":"director", u"режиссер":"director", u"в главных ролях":u"cast", u"просмотр":u"time",
+                    u"Бюджет":u"budget", u"Ограничения":u"age_restrictions",
+                    u"Сценарий":u"screenplay"
+                    }
+
+
+    video_type = 1
+
+    try:
+        res = urllib.urlopen(adres).read()
+        soup = BeautifulSoup(str(res))
+    except Exception, e:
+            #print "Произошел дисконнект при поиске фильма, пожалуйста подождите...",
+            print 'Print log...'
+            logging.info("Произошел дисконнект при поиске фильма, пожалуйста подождите...")
+            print traceback.print_exc()
+            time.sleep(7)
+            return 1  # Раскомментить
+    for link in soup.findAll("a", {"class":"mainlink"}):
+        paramd = {}
+        paramd["player_video_url"] = ""
+        paramd["orig_title"] = ""
+        paramd["title"] = ""
+        paramd["premiere_date"] = ""
+        paramd["genres_client_view"] = ""
+        paramd["quality"] = ""
+        paramd["sound"] = ""
+        paramd["director"] = ""
+        paramd["cast"] = ""
+        paramd["time"] = ""
+        paramd["budget"] = ""
+        paramd["age_restrictions"] = ""
+        paramd["screenplay"] = ""
+        paramd["year"] = ""
+        paramd['label_text'] = ''
+        paramd['one_serial_links'] = ''
+        paramd['translit_video_name'] = ''
+        paramd['country'] = ''
+        paramd["description"] = ''
+        # paramd["genre"] = ""
+        # paramd["cast"] = ""
+        # paramd["time"] = ""
+        time.sleep(7)
+        ADRESS_one_video = link.get("href")
+        ##############################################
+        # Парсинг одной страницы
+        ##############################################
+        #ADRESS_one_video = 'http://gidonlinekino.com/2014/09/ono/'
+        try:
+            source = urllib.urlopen(ADRESS_one_video).read()
+            one_video_html = BeautifulSoup(source)
+        except Exception, e:
+            print "Ne Udalos Otkrit url Filma...",
+            print 'Print log...'
+            logging.info(u"Не удалось открыть url фильма...")
+            print traceback.print_exc()
+            time.sleep(7)
+        try:
+            try:
+                id_gid_film = one_video_html.find('meta', {'id':'meta'}).get('content')
+            except Exception, e:
+                print "Ne Polucheno ID Filma v Gidonline! . . . : ",
+                print 'Print log...'
+                logging.info(u"Не получено ID фильма в Гидонлайн! . . . : ",)
+                print traceback.print_exc()
+
+            try:
+                #/1  
+                #video_iframe = urllib.urlopen('http://gidonlinekino.com/ trailer1.php', 'id_post=%s'% id_gid_film).read() # Ссылка не рабочая раньше была на сайте тепеь поменялась на http://gidonlinekino.com/1  trailer1.php )) 
+                video_iframe = urllib.urlopen('http://gidonlinekino.com/ trailer1.php', 'id_post=%s'% id_gid_film).read()
+                try:
+                    iframe_soup = BeautifulSoup(video_iframe.decode('utf-8'))
+                except TypeError:
+                    print "===TypeError === 2 ! ! !==="
+                    iframe_soup = BeautifulSoup(str(video_iframe))
+            except Exception, e:
+                print "Ne udalos Otkrit Resurs S ssilkoy Po Video: ",
+                print 'Print log...'
+                logging.info(u"Не удалось открыть ресурс с ссылкой проигрывания видео : ",)
+                print traceback.print_exc()
+            try:
+                for f in iframe_soup.findAll("iframe"):
+                    if (f.get("src").find('vk') != -1):  # not(got_video) and
+                        urlstr = f.get("src")
+                        urlstr = str(urlstr)
+                        # paramd["player_video_url"] = str(urlstr).replace('amp;', '')  # param13 #
+                        # Если фильм содержит 2 части т.е. 2 видео
+                        if paramd["player_video_url"] == '':
+                            paramd["player_video_url"] = str(urlstr).replace('amp;', '').strip()
+                        else:
+                            paramd["player_video_url"] = str(paramd["player_video_url"]).strip() + ',' + str(urlstr).replace('amp;', '').strip()
+            except Exception, e:
+                #print u'Не найдено тегов "iframe".. ',
+                print 'Print log...'
+                logging.info(u'Не найдено тегов "iframe".. ',)
+                print "Oschibka v Bloke Parsinga iframe"
+                print traceback.print_exc()
+                
+            #####################################################
+            # Парсинг нового плейера Gidonline.com 24.11.2014
+            #####################################################
+            try:
+                if not iframe_soup.find('iframe', {'id':'iframe_a'}).get('src').find('kinolove.tv') == -1: #
+                    video_par = iframe_soup.find('iframe', {'id':'iframe_a'}).get('src').replace('http://kinolove.tv/?video=', '')
+                else:
+                    print "Ne naydeno ssilki s parametrami vkontakte"
+                url = 'http://kinolove.tv/'
+                
+            except:
+                print "Ne udalos' Poluchit ssilki proigrivaniya video"
+            if video_par:
+                video = {'video':video_par}
+                headers = {'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Encoding':'gzip,deflate,sdch',
+                'Accept-Language':'ru-RU,ru;q=0.8,en-US;q=0.6,en;q=0.4',
+                'Cache-Control':'max-age=0',
+                'Connection':'keep-alive',
+                'Host':'kinolove.tv',
+                'Referer':'http://gidonlinekino.com/2014/11/kolyuchka/',
+                'User-Agent':'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.111 Safari/537.36'}
+                r = requests.get(url, params = video, headers=headers)
+                
+                #print r.content
+                vk_params = re.findall(r'\w+\d+\w+[|]\d+[|]\d+', r.content)
+                #print vk_params
+                for vk_p in vk_params:
+                    vk_params = vk_p.split('|')
+                
+                for index, param in enumerate(vk_params):
+                    if index==0:
+                        embed_hash = param
+                    elif index == 1:
+                        oid = -int(param)
+                    elif index == 2:
+                        video_id = param
+
+                vk_request = requests.get('https://api.vk.com/method/video.getEmbed?oid=%s&video_id=%s&embed_hash=%s'%(oid, video_id, embed_hash))
+                if not vk_request.content.find('"error_code":15') == -1:
+                    oid = -int(oid)
+                    vk_request = requests.get('https://api.vk.com/method/video.getEmbed?oid=%s&video_id=%s&embed_hash=%s'%(oid, video_id, embed_hash))
+
+                #print vk_request.url
+                data = json.loads(vk_request.content)
+                #print data
+                str_vk = '|'
+                for k, response in data.items():
+                    if k == 'response':
+                        for k, v in response.items():
+                            
+                            if k == 'url720':
+                                str_vk = str_vk+(str(k)+' '+str(v))+'|'
+                                #print k, v
+                            elif k == 'url240':
+                                str_vk = str_vk+(str(k)+' '+str(v))+'|'
+                                #print k, v
+                            elif k == 'url360':
+                                str_vk = str_vk+(str(k)+' '+str(v))+'|'
+                                #print k, v
+                            elif k == 'url480':
+                                str_vk = str_vk+(str(k)+' '+str(v))+'|'
+                                #print k, v
+                    else:
+                        print "Json VK ne Vernul otvet"
+                        print 'Print log...'
+                        logging.info('Json VK ne Vernul otvet.. ',)
+                if paramd["player_video_url"] == '':
+                        paramd["player_video_url"] = str_vk
+                #print str_vk
+            ######################################################
+        except Exception, e:
+            print traceback.print_exc()
+            continue
+            # return 1
+        orig_title = ''
+        title = ''
+        try:
+            for param in one_video_html.find("div", {"class":"t-row"}).findAll("div", {'class':'rl-1'}):
+                # print param.text
+                for k in params_match.keys():
+                    if param.text == k:
+                        if param and param.nextSibling:
+                            if param.nextSibling.find('a'):
+                                try:
+                                    param.nextSibling.findAll('a')[1].contents[0]
+
+                                    for name in param.nextSibling.findAll('a'):
+                                        if paramd[params_match[k]] == '':
+                                            paramd[params_match[k]] = name.renderContents().decode('utf-8')
+                                        else:
+                                            paramd[params_match[k]] = paramd[params_match[k]] + ', ' + name.renderContents().decode('utf-8')
+                                except:
+                                    paramd[params_match[k]] = param.nextSibling.find('a').contents[0]
+                            else:
+                                paramd[params_match[k]] = param.nextSibling.contents[0]
+
+        except Exception, e:
+            print traceback.print_exc()
+            continue
+            # return 1
+        #=======================================================================
+        # for par in gidonline_genre.values():
+        #     if genres_string.find(par) != -1:
+        #         if paramd["genres_client_view"] == '':
+        #             paramd["genres_client_view"] = par
+        #         else:
+        #             paramd["genres_client_view"] = paramd["genres_client_view"] +', '+ par
+        #=======================================================================
+        # print paramd['country']
+        paramd["genres_client_view"] = paramd["genres_client_view"].strip()  # .decode('utf-8')
+        paramd['translit_video_name'] = translit(paramd['title'], paramd['orig_title'])
+        genres_list = []
+        for i in paramd["genres_client_view"].split(', '):
+            # print 'genre'
+            for gk, gv in ymka_genre.items():
+                # print gv
+                if  i.find(gv) != -1:
+                    genres_list.append(gk)
+        time.sleep(5)
+        try:
+            html_desc = one_video_html.find("div", {"class":"infotext"})
+            if html_desc and paramd["player_video_url"]:
+                if html_desc.find('div'):
+                    paramd["description"] = one_video_html.find("div", {"class":"infotext"}).find('div').renderContents().replace("<strong>", "").replace("</strong>", "").replace('<p>', '').replace('<span class="gnv">© ГидОнлайн</span>', '').replace('</p>', '').replace('ГидОнлайн', '')  # #.contents[0]
+                else:
+                    paramd["description"] = one_video_html.find("div", {"class":"infotext"}).renderContents().replace("<strong>", "").replace("</strong>", "").replace('<p>', '').replace('<span class="gnv">© ГидОнлайн</span>', '').replace('</p>', '').replace('ГидОнлайн', '')
+        except:
+            print traceback.print_exc()
+        try:
+            paramd['image_link'] = one_video_html.find('img', {'class':'t-img'}).get('src')
+            paramd['image_link'] = "http://gidonlinekino.com" + paramd['image_link']
+        except:
+            #print u"Изображение не загружено видео с gidonlinekino.com ",
+            print 'Print log...'
+            logging.info(u"Изображение не загружено видео с gidonlinekino.com ",)
+            print traceback.print_exc()
+
+        if paramd["player_video_url"] != "":
+            base_save(orig_title=paramd["orig_title"], title=paramd["title"], paramd=paramd, video_type=video_type, genres_list=genres_list, serial=False, list_new_films_id = list_new_films_id, id_gid_film = id_gid_film)
+
+        paramd = {}
+
+
+
+
+
+
+
+
+
+
+# if __name__ == '__main__':
+#    ADRESS_one_video = 'http://gidonlinekino.com/2013/04/transformery-1986/'
+#    xvfb = XvfbManager()
+#    print 'tut'
+#    xvfb.start()
+#    print 'tut1'
+#    ff_manager = FirefoxManager()
+#    print 'tut2'
+#    source = FilmUpdater().adres(ff_manager.firefox(), ADRESS_one_video)
+#    print 'tut3'
+#    # xvfb.stop()
+#    print 'tut4'
+#    print source[:100]
+#    ADRESS_one_video = 'http://gidonlinekino.com/2013/04/transformery-1986/'
+#    # xvfb = XvfbManager()
+#    print 'tut'
+#    # try:
+#    #    xvfb.start()
+#    # except:
+#    #    pass
+#    print 'tut1'
+#    ff_manager = FirefoxManager()
+#    print 'tut2'
+#    source = FilmUpdater().adres(ff_manager.firefox(), ADRESS_one_video)
+#    print 'tut3'
+#    xvfb.stop()
+#    print 'tut4'
+#    print source[:100]
+#    exit()
+
+
+
+
+
+
+
+
+adreses = {'detective': u'http://gidonlinekino.com/genre/detektiv/page/1/', 'adventure': u'http://gidonlinekino.com/genre/priklyucheniya/page/1/',
+           'biografiya': u'http://gidonlinekino.com/genre/biografiya/page/1/', 'history': u'http://gidonlinekino.com/genre/istoriya/page/1/',
+           'boevik': u'http://gidonlinekino.com/genre/boevik/page/1/', 'komediya': u'http://gidonlinekino.com/genre/komediya/page/1/',
+           'sport': u'http://gidonlinekino.com/genre/sport/page/1/', 'vestern': u'http://gidonlinekino.com/genre/vestern/page/1/',
+           'kriminal': u'http://gidonlinekino.com/genre/kriminal/page/1/', 'triller': u'http://gidonlinekino.com/genre/triller/page/1/',
+           'voennyj': u'http://gidonlinekino.com/genre/voennyj/page/1/', 'melodrama': u'http://gidonlinekino.com/genre/melodrama/page/1/',
+           'uzhasy': u'http://gidonlinekino.com/genre/uzhasy/page/1/', 'drama': u'http://gidonlinekino.com/genre/drama/page/1/',
+           'fentezi': u'http://gidonlinekino.com/genre/fentezi/page/1/', 'fantastika': u'http://gidonlinekino.com/genre/fantastika/page/1/',
+           'semejnyj': u'http://gidonlinekino.com/genre/semejnyj/page/1/', 'artxaus': u'http://gidonlinekino.com/genre/artxaus/page/1/',
+           'dokumentalnyj': u'http://gidonlinekino.com/genre/dokumentalnyj/page/1/'}
+# adreses = {'all_films': u'http://gidonlinekino.com/page/1/'}
+adreses = {'new_films':u'http://gidonlinekino.com/page/1'} # Потом раскомментить когда будет проход по всем жанрам
+# adreses = {'non':'non'}
+#adreses = {'dokumentalnyj': u'http://gidonlinekino.com/genre/dokumentalnyj/page/1/'}
+
+def gidonlinekino(list):
+    global list_new_films_id 
+    list_new_films_id = list
+    #list_new_films_id = list_new_films_id
+    #print 'Begin gidonlinekino' + str(datetime.datetime.now())
+    print 'Print log...'
+    logging.info('Begin gidonlinekino' + str(datetime.datetime.now()))
+    for key, adres in adreses.iteritems():
+        ADRESS = adreses[key]
+        try:
+            res = urllib.urlopen(ADRESS).read()  # Предыдущий вариант без хедеров
+            soup = BeautifulSoup(str(res))
+     
+        except Exception, e:
+            print traceback.print_exc()
+            #print "Не удалось открыть веб страницу, подождите..."
+            print 'Print log...'
+            logging.info("Не удалось открыть веб страницу, подождите...")
+            time.sleep(4)  # Раскомментировать
+            # continue  # Если происходит дисконнект, чтобы скрипт не переставал работать
+     
+        def get_number_pages():
+            pages = None
+            try:
+                count_pages = soup.find("div", {"class":"wp-pagenavi"}).find('a', {'class':'last'}).get('href')
+                pages = count_pages[-4:].replace('/', '').strip()
+            except Exception, e:
+                #print "Ошибка html разметки на странице, не удалось получить значение колличества страниц для данного раздела..."
+                print 'Print log...'
+                logging.info("Ошибка html разметки на странице, не удалось получить значение колличества страниц для данного раздела...")
+                print traceback.print_exc()
+                return 1
+     
+            #print u"Колличество страниц = " + str(pages)
+            print 'Print log...'
+            logging.info(u"Колличество страниц = " + str(pages))
+            return pages
+     
+        def Parse_pages_section(pages, list_new_films_id):
+            if key == 'new_films':  # Парсить первые 2 страницы новинок
+                print list_new_films_id
+                pages = 3
+                for index in  range(1, int(pages) + 1):
+                    #print u"Страница " + str(index) + u':'
+                    print 'Print log...'
+                    logging.info(u"Страница " + str(index) + u':')
+                    ADRESS = adreses[key].replace('1', str(index))
+                    Parse_one_page(ADRESS, list_new_films_id) # Раскомментить ! ! !
+            else:
+                for index in  range(1, int(pages) + 1):
+                    #print u"Страница " + str(index) + u':'
+                    print 'Print log...'
+                    logging.info(u"Страница " + str(index) + u':')
+                    ADRESS = adreses[key].replace('1', str(index))
+                    Parse_one_page(ADRESS, list_new_films_id)  # Раскомментить !!!
+     
+     
+        if key != 'serial':
+            #print u'Раздел:' + key,
+            print 'Print log...'
+            logging.info(u'Раздел:' + key,)
+            if key == 'artxaus' or key == 'dokumentalnyj':
+                pages = 10
+                #print u"Колличество страниц = " + str(pages)
+
+                print 'Print log...'
+                logging.info(u"Колличество страниц = " + str(pages))
+            else:
+                pages = get_number_pages()
+     
+            Parse_pages_section(pages, list_new_films_id)
+
+    #===============================================================================
+    # ### Кинопоиск и Imdb
+    #===============================================================================
+    def kinopoisk(list_new_films_id):
+        #for name in Video.objects.all():
+        for id in list_new_films_id:
+            name = Video.objects.get(id = id )
+            #name = Video.objects.get(id = 10514 ) # Закомментить !!!
+            if name.orig_title:
+                title = name.orig_title
+            else:
+                title = name.title
+            # else:
+
+            #    break;
+            #logging.disable(logging.CRITICAL)  #!!!
+            g = Grab()
+            g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+            # time.sleep(5)
+            try:
+                g.go('http://www.kinopoisk.ru/index.php?first=no&what=&kp_query=%s' % (urllib.quote(title.encode('utf-8'))))
+                soup = BeautifulSoup(g.response.body)
+            except Exception, e:
+                # print traceback.print_exc()
+                print "Disconnect to Kinopoisk, please wait..."
+                print 'Print log...'
+                logging.info(u"Произошел дисконект при открытии www.kinopoisk.ru, пожалуйста подождите...")
+                time.sleep(10)
+            # sys.exit()
+            try:
+                for year in soup.find('div', {'class':'element most_wanted'}).find('p', {'class':'name'}).findAll('span'):
+                    year = year.contents[0][:4]
+                try:
+                    image_exist = False
+                    gidonline = False
+                    ymka = False
+                    if not name.image_link.find('st.kp') == -1:
+                        image_exist = True
+                        print u"Uje est Poster s kinopoiska dlja video: " + title
+                        print 'Print log...'
+                        logging.info(u"Уже есть постер с кинопоиска для видео " + title)
+                    if name.source == 2:
+                        if not name.year.find(str(year)) == -1:  # or not name.year.find(str(int(year)+1) ) == -1
+                            gidonline = True
+                    if name.source == 1:
+                        if not name.premiere_date.find(str(year)) == -1 or not name.premiere_date.find(str(int(year) + 1)) == -1:
+                            ymka = True
+                    if gidonline or ymka:
+                        name.year = year
+                        try:
+                            for link in soup.find('div', {'class':'element most_wanted'}).find('p', {'class':'name'}).findAll('a'):
+                                film_id = link.get('href').replace('/level/1/film/', '').replace('/sr/1/', '')
+                                # print film_id
+                                name.rating = film_id
+                                try:
+                                    g.go('http://www.kinopoisk.ru/film/%s/' % (film_id))
+                                    page_img = BeautifulSoup(g.response.body)
+                                except Exception, e:
+                                    print traceback.print_exc()
+                                try:
+                                    for img_link in page_img.find('a', {'class':'popupBigImage'}).findAll('img'):
+                                        if img_link.get('src') and str(img_link.get('src')).find('poster_none') == -1:
+                                                if not image_exist:
+                                                    name.image_link = img_link.get('src')
+                                except Exception, e:
+                                    # print traceback.print_exc() # Нет изображения
+                                    print "Net Kartinki nuznogo Razmera"
+                                    print 'Print log...'
+                                    logging.info(u"Нет картинки нужного размера")
+                                # ## XML Кинопоиск
+        
+                                kino_xml_url = 'http://rating.kinopoisk.ru/%s.xml' % (int(film_id))
+                                #logging.disable(logging.CRITICAL)
+                                g = Grab()
+                                g.setup(hammer_mode=True, hammer_timeouts=((2, 5), (50, 60), (100, 110)))
+                                try:
+                                    g.go(kino_xml_url)
+                                    xmldoc = xml.dom.minidom.parseString(g.response.body)
+                                    root = xmldoc.documentElement
+                                    # print g.response.body
+                                    imdb_rating = False
+                                    kp_rating = False
+                                    for node in root.childNodes:
+                                        if node.nodeName == 'kp_rating':
+                                            kp_rating = node.childNodes[0].nodeValue
+                                            num_vote_kp = node.getAttribute('num_vote')
+                                            name.kp_rating = kp_rating + " " + "(" + num_vote_kp + ")"
+                                        if node.nodeName == 'imdb_rating':
+                                            imdb_rating = node.childNodes[0].nodeValue
+                                            num_vote = node.getAttribute('num_vote')
+                                            name.imdb_rating = imdb_rating + " " + "(" + num_vote + ")"
+        
+                                    name.save()
+                                    if ymka:
+                                        print "Dannie reytinga Uspechno Polucheni! Istochnik: ymka.tv",
+                                        print 'Print log...'
+                                        logging.info("Данные рейтинга успешно получены! Источник: ymka.tv",)
+                                    if gidonline:
+                                        print "Dannie reytinga Uspechno Polucheni! Istochnik gidonlinekino.com",
+                                        print 'Print log...'
+                                        logging.info("Данные рейтинга успешно получены! Источник gidonlinekino.com",)
+                                    print 'Name Video: ' + title, 'Reyting Kinopoiska: ' + kp_rating , ' Reyting Imdb: ' + imdb_rating
+                                    print 'Print log...'
+                                    logging.info(u'Название видео: ' + title+ u'Рейтинг кинопоиска: ' + kp_rating + u' Рейтинг Imdb: ' + imdb_rating)
+                                except Exception, e:
+                                    # print traceback.print_exc()
+                                    print "Reytinga Imdb net v xml dokumente Kinopoiska..."
+                                    print 'Print log...'
+                                    logging.info("Рейтинга Imdb нет в xml Видео:%s документе кинопоиска..."%(title))
+                                    time.sleep(10)
+                        except Exception, e:
+                            print traceback.print_exc()
+                    else:
+                        #print u"Не найден нужный фильм в кинопоиске..."
+                        print 'Print log...'
+                        print "Ne Nayden Nuzniy Film v Kinopoiske... Video: %s "%(title)
+                        logging.info(u"Не найден нужный фильм в кинопоиске... Видео: %s "%(title))
+                except Exception, e:
+                    print traceback.print_exc()
+                except ImageExist:
+                    print "Poster usje Est v baze"
+                    print 'Print log...'
+                    logging.info(u"Постер уже есть в базе")
+            except Exception, e:  # Если имя и оригинальное имя отсутствуют, т.е
+                # print traceback.print_exc()
+                #print "Произошел дисконнект, пожалуйста подождите..."
+                print 'Print log...'
+                #print traceback.print_exc() # Закомментить ! ! !
+                print "Oschibka v Reytinge Kinopoiska..."
+                logging.info(u"Ошибка в рейтинге кинопоиска:    %s    "%(traceback.format_exc()))
+        
+                # time.sleep(15)
+            # Получение Imdb ID
+            try:
+                g.go('http://www.imdb.com/find?ref_=nv_sr_fn&q=%s&s=all' % (urllib.quote(title.encode('utf-8'))))
+                soup_imdb = BeautifulSoup(g.response.body)
+            except Exception, e:
+                print "Disconnect pri otkritii imdb.com, please wait..."
+                print 'Print log...'
+                logging.info(u"Произошел дисконект при открытии imdb.com, пожалуйста подождите...")
+                time.sleep(10)
+            try:
+                if not soup_imdb.find('td', {'class':'result_text'}).find(name.year) == -1:
+                    time.sleep(2)
+                    imdb_id = soup_imdb.find('td', {'class':'result_text'}).find('a').get('href').split('/')[2].replace('tt','')
+
+                    name.imdb_id = imdb_id
+                    name.save()
+                    print "Dannie Reytinga IMDB uspeschno dobavleni dlja Filma %s"%(title)
+                    print 'Print log...'
+                    logging.info(u"Данные рейтинга IMdb успешно добавлены для фильма %s "%(title))
+            except AttributeError:
+                print "Net Takogo ID na IMDB s takim nazvaniem filma"
+                print 'Print log...'
+                logging.info("Нет такого ID на imdb с таким названием фильма...")
+            except:
+                print 'Ne izvestnaya oshibka: ne udalos poluchit imdb video...'
+                print traceback.print_exc()
+                logging.info("Не известная ошибка: не удалось получить ID imdb видео..."+ traceback.format_exc())
+        
+        print 'END of Script gidonline ' + str(datetime.datetime.now())
+        print 'Print log...'
+        logging.info('END of Script gidonline ' + str(datetime.datetime.now()))
+
+    ########### Для одиночного запуска для того чтобы все старые фильмы получили свой ID Imdb ################################
+    #for v in Video.objects.all(): # Потом закомментить ! ! !
+    #    list_new_films_id.append(v.id) # Потом закомментить ! ! !
+    ###################################################
+    #list_new_films_id = [10542]
+    kinopoisk(list_new_films_id)
+
+###gidonlinekino([10521]) #Заккоментить ! ! !
+
+
+
+
+
+
+

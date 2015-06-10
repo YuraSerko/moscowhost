@@ -1,0 +1,118 @@
+{% extends 'base_private.html' %}
+{% load i18n form_tags lib_tags %}
+
+{% block content %}
+
+
+{% if site != 3 %}
+<h1 class="title">Покупка карты</h1>
+
+{{ block.super }}
+{% endif %}
+
+{% if site == 3 %}
+<style type="text/css">
+    .form-submit-left {
+        display: block;
+    }
+    .h4_style {
+color: #535353;
+font-size: 12px;
+}
+h4 {
+font-size: 1em;
+margin: 1.33em 0;
+}
+</style>
+{% block sendin %}
+    {{block.super}}
+{% endblock %}
+
+  <article id="right">
+    <div id='centr_field'>
+
+    {% block cap %}
+    {{block.super}}
+{% endblock %}
+<h1 class="title" style="float: none;">Покупка карты</h1>
+
+{% if notifications %}
+        {% for message in notifications %}
+                            <div class="status status-{{ message.tags }}">
+                                <i class="ico"></i>
+                                <div class="status-i">
+                                    <p>{{ message }}</p>
+                                </div>
+                            </div>
+                        {% endfor %}
+    {% endif %}
+
+{% endif %}
+
+
+
+  
+    
+    <body>
+  
+    <div class="status status-success">
+                                <i class="ico"></i>
+                                <div class="status-i">
+                                    <p>Ваш логин и пароль карточного пользователя успешно создан.</p>
+                                </div>
+                            </div>
+            <!--form method="post" name="new">
+                <input type="submit" name="card" value="новая карта">
+            </form-->
+    
+{% if card_table %}
+    <h7 style = "color: #535353;">Ваша карта доступа:</h7>
+   <div class="form-row last_login">
+<div>
+<table class="type-3" id = "card_table" border="1">
+  <thead>
+  <tr>
+ <th>Логин </th>  <th>Пароль </th>  <th>Номинал </th>
+
+
+  </tr></thead>
+  <tbody>
+   
+   
+   <tr style = "{% cycle 'background: #EDF3FE;' 'raw2'%}"> 
+
+
+             
+        <td>{{ card_login.login }}</td>
+        <td>{{ card_login.pin}}</td>       
+        
+         
+
+
+
+<td>{{card_login.nominal}}</td>
+
+
+
+
+</tr>
+
+</tbody>
+</table>
+</div>
+</div>
+{% endif %}     
+
+
+{% if site == 3 %}
+    </article>
+    </div>
+{% endif %}
+
+<div style="margin-left: 150px; " class="">
+<form method = "GET" action="/account/payment/get_card/">
+                <input style="width:100px;" class="bt bt-blue2" type="submit" name="submit"  value="OK">
+                </form>
+            </div>
+
+{% endblock %}

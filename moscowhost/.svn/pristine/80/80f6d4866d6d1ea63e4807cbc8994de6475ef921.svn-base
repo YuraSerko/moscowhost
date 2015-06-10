@@ -1,0 +1,63 @@
+#!/usr/bin/env python
+# coding: utf-8
+try:
+    import datetime
+    import sys, os
+    sys.path[0] = '../'
+    os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+    from data_centr.models import Data_centr_payment, Zakazy
+    from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message, \
+                                add_record_in_priority_of_services, cost_dc, real_section_name
+    from billing.models import BillserviceAccount, BillservicePhoneTransaction
+    from payment.models import Billservice_transaction
+    from externalnumbers.models import ExternalNumber, Number800Payments
+    from externalnumbers.consts import NUMBER800_REGION, ABON_SERVICE_TYPE
+    from findocs.models import Package_on_connection_of_service
+    from telnumbers.models import TelNumbersZakazy, TelNumbersGroup
+    from dateutil.relativedelta import relativedelta
+    from django.db.models import Q, Sum
+    from django.db import connections
+    from django.conf import settings
+#    from settings import DEFAULT_FROM_EMAIL, BILLING_DB
+    import log
+    from lib.mail import send_email
+#    from page.models import Send_mail
+    from account.models import Profile
+    from django.core.mail import EmailMultiAlternatives
+    import calendar
+
+    current_domain = {1:'globalhome.su', 2:'moscowdata.ru'}
+
+    now = datetime.datetime(2014, 6, 30)
+
+    cur = connections[settings.BILLING_DB].cursor()
+    print 'start'
+    payment_qs = Data_centr_payment.objects.filter(year=2014, month=6, bill_account=2971, payment_date=None)
+    for payment in payment_qs:
+        print payment.id
+        zakaz = payment.zakaz
+
+        try:
+
+            section_name = real_section_name(zakaz)
+            cost_zakaz = -payment.cost
+            cur.execute("INSERT INTO billservice_transaction(bill, account_id, type_id, approved, summ, \
+            description, created) VALUES(%s, %s, %s, %s, %s, %s, now());", \
+            (section_name, payment.bill_account.id, "ZAKAZ_PAY", True, cost_zakaz, u'Оплата заказа №%s' % zakaz))
+            payment.payment_date = now
+            payment.save()
+
+        except Exception, e:
+            print e
+            cur.connection.rollback()
+        else:
+            cur.connection.commit()
+    print 'end'
+except Exception, e:
+    body_message = "Exception in script new_script_for_write_off_of_money.py: '%s'" % e
+    exc_type, exc_obj, exc_tb = sys.exc_info()  # @UnusedVariable
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    body_message += "\nException in script new_script_for_write_off_of_money.py: file:%s line:%s" % (fname, exc_tb.tb_lineno)
+    send_email(u"Ошибка скрипта new_script_for_write_off_of_money.py", "%s" % body_message, settings.DEFAULT_FROM_EMAIL, ["Zz1n@globalhome.su", "noc@globalhome.su"])
+    print body_message
+    log.add(body_message)

@@ -1,0 +1,217 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys, os
+import datetime
+import copy
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from billing.models import BillserviceAccount
+from data_centr.models import Zakazy, Data_centr_payment
+from data_centr.views import send_mail_check, add_document_in_dict_for_send
+from account.models import Profile
+from findocs.models import Rules_of_drawing_up_documents, Check, Act, Invoice, FinDocSigned
+from django.contrib.auth.models import User
+from django.db.models import Q
+from django.db import connections
+from dateutil.relativedelta import relativedelta
+
+
+def add_account_in_dict(dict_bill_account, bill_acc_id, rule_id):
+    if dict_bill_account.has_key(bill_acc_id):
+        spis_rules = dict_bill_account[bill_acc_id]
+        spis_rules.append(rule_id)
+        dict_bill_account.update({bill_acc_id:spis_rules})
+    else:
+        dict_bill_account.update({bill_acc_id:[rule_id]})
+    return dict_bill_account
+
+
+dict_bill_account = {}  # тут получаем список аккаунтов исходя из заказов# выставляем дату для фильтра
+now = datetime.datetime.now()
+now_start_month = datetime.datetime(now.year, now.month, 1, 0, 0, 0)
+last_start_month = now_start_month - relativedelta(months=1)
+# spis_bill_account = BillserviceAccount.objects.all()
+# spis_profile_account = Profile.objects.filter().exclude(activated_at=None, is_card=True, is_hostel=True).order_by('id')
+rules = Rules_of_drawing_up_documents.objects.filter(switch_on_off=True)
+print 'start script at %s' % now
+print 'collect the list of accounts...please wait'
+for index, rule in enumerate(rules):
+    size = 50
+    x = int(size * index / len(rules))
+    sys.stdout.write("%s[%s%s] %i/%i\r" % ('Finished: ', "#"*x, "."*(size - x), index, len(rules)))
+    sys.stdout.flush()
+    if rule.type == 1:
+        dict_bill_account_in_zakazy = Zakazy.objects.filter(Q(status_zakaza__in=[2, 3, 4, 5]) & \
+                                                            Q(service_type=rule.service_type) & \
+                                                            ((Q(date_activation__lt=now_start_month) & Q(date_deactivation=None)) | \
+                                                            (Q(date_activation__lt=last_start_month) & Q(date_deactivation__gte=now_start_month)))).order_by('bill_account').distinct().values('bill_account')
+        # компануем список аккаунтов
+        for i in dict_bill_account_in_zakazy:
+            dict_bill_account = add_account_in_dict(dict_bill_account, i['bill_account'], rule.id)
+    elif rule.type == 2:
+        spis_id_account = eval('BillserviceAccount.%s()' % rule.method_bill_acc)
+        for account_id in spis_id_account:
+            dict_bill_account = add_account_in_dict(dict_bill_account, account_id, rule.id)
+print 'collecting the list of accounts came to the end'
+print 'dict_bill_account = %s' % dict_bill_account
+
+dict_documents_for_send = {}
+for bill_acc, rules in dict_bill_account.items():
+    if bill_acc == 8:
+        continue
+    profile_obj = Profile.objects.get(billing_account_id=bill_acc)
+    if not profile_obj.create_invoice:
+        continue
+    print '*' * 50
+    print bill_acc, rules
+    bill_account_obj = BillserviceAccount.objects.get(id=bill_acc)
+    if now_start_month > (now - relativedelta(days=bill_account_obj.idle_time)):
+        payment_obj = Data_centr_payment.objects.filter(\
+                    Q(year=last_start_month.year) & Q(month=last_start_month.month) & \
+                    Q(bill_account=bill_acc) & Q(every_month=False) & Q(postdate=False) & Q(payment_date=None))
+        if payment_obj:
+            print 'payment_obj'
+            for i in payment_obj:
+                print i.id
+            continue
+    # бежим по правилам которые есть у пользователя
+    group_rules_check_for_user = Check.group_rules(profile_obj, rules, 'type_check')
+    print 'bill_acc = %s, group_rules_check_for_user = %s' % (bill_acc, group_rules_check_for_user)
+    group_rules_act_for_user = Act.group_rules(profile_obj, rules, 'type_act')
+    group_rules_invoice_for_user = Act.group_rules(profile_obj, rules, 'type_invoice')
+
+    if profile_obj.is_juridical:
+        for rule, spis_rule_id in group_rules_check_for_user.items():
+            rule = eval(rule)
+            if rule[1] == 1:
+                year, month = (now - relativedelta(months=1)).year, (now - relativedelta(months=1)).month
+            elif rule[1] == 2:
+                year, month = now.year, now.month
+            findoc_sign_obj = FinDocSigned.objects.get(id=rule[0])
+            check_queryset = Check.objects.filter(created_by=profile_obj.user, year=year, month=month, findoc__id=findoc_sign_obj.findoc.id, type_paid=rule[1])
+            if check_queryset:
+                # если у пользователя по такому правилу уже есть счет, тогда удаляем правило из списка
+                del group_rules_check_for_user[str(rule)]
+    for rule, spis_rule_id in group_rules_act_for_user.items():
+        rule = eval(rule)
+        findoc_sign_obj = FinDocSigned.objects.get(id=rule[0])
+        year, month = (now - relativedelta(months=1)).year, (now - relativedelta(months=1)).month
+        act_queryset = Act.objects.filter(created_by=profile_obj.user, year=year, month=month, findoc__id=findoc_sign_obj.findoc.id)
+        if act_queryset:
+            # если у пользователя по такому правилу уже есть счет, тогда удаляем правило из списка
+            del group_rules_act_for_user[str(rule)]
+
+    for rule, spis_rule_id in group_rules_invoice_for_user.items():
+        rule = eval(rule)
+        findoc_sign_obj = FinDocSigned.objects.get(id=rule[0])
+        year, month = (now - relativedelta(months=1)).year, (now - relativedelta(months=1)).month
+        invoice_queryset = Invoice.objects.filter(created_by=profile_obj.user, year=year, month=month, findoc__id=findoc_sign_obj.findoc.id)
+        if invoice_queryset:
+            # если у пользователя по такому правилу уже есть счет, тогда удаляем правило из списка
+            del group_rules_invoice_for_user[str(rule)]
+
+    spis_create_check, spis_create_act, spis_create_invoice = [], [], []
+    # если у пользователя остались правила в списке, тогда выставляем счет
+    if group_rules_check_for_user:
+        if profile_obj.is_juridical:
+            print 'create check for bill_acc = %s' % bill_acc
+            spis_create_check = Check.create_check(profile_obj.user, group_rules_check_for_user, True)
+            dict_documents_for_send = add_document_in_dict_for_send(dict_documents_for_send, profile_obj.user.id, 'Check', spis_create_check)
+    # если у пользователя остались правила в списке, тогда выставляем акт
+    if group_rules_act_for_user:
+        print 'create act for bill_acc = %s' % bill_acc
+        spis_create_act = Act.create_act(profile_obj.user, group_rules_act_for_user)
+        dict_documents_for_send = add_document_in_dict_for_send(dict_documents_for_send, profile_obj.user.id, 'Act', spis_create_act)
+    # если у пользователя остались правила в списке, тогда выставляем акт
+    if group_rules_invoice_for_user:
+        print 'create invoice for bill_acc = %s' % bill_acc
+        spis_create_invoice = Invoice.create_invoice(profile_obj.user, group_rules_invoice_for_user)
+        dict_documents_for_send = add_document_in_dict_for_send(dict_documents_for_send, profile_obj.user.id, 'Invoice', spis_create_invoice)
+    print '*' * 50
+print dict_documents_for_send
+for key, value in dict_documents_for_send.items():
+    if value.has_key('Act'):
+        if not value['Act']:
+            profile_obj = Profile.objects.get(user__id=key)
+            print 'user id = %s, username = %s, create_doc = %s' % (profile_obj.user.id, profile_obj.user.username, profile_obj.create_invoice)
+
+# для HotSpot
+print '*' * 50
+print u'Create document for user hotspot'
+# spis_bill_acc_id = BillserviceAccount.get_sum_hotspot()
+year, month = (now - relativedelta(months=1)).year, (now - relativedelta(months=1)).month
+# for bill_acc_id in spis_bill_acc_id:
+#    try:
+#        profile_obj = Profile.objects.get(billing_account_id=bill_acc_id)
+#    except Profile.DoesNotExist:
+#        print 'no profile, bill_acc_id = %s' % bill_acc_id
+user = User.objects.get(id=1)
+act_queryset = Act.objects.filter(created_by=user, year=year, month=month, findoc__id=37)
+if not act_queryset:
+    print 'create act for hotspot'
+    act_obj = Act.create_act_hotspot(user)
+invoice_queryset = Invoice.objects.filter(created_by=user, year=year, month=month, findoc__id=37)
+if not invoice_queryset:
+    print 'create invoice for hotspot'
+    invoice_obj = Invoice.create_invoice_hotspot(user)
+print u'End create document for user hotspot'
+print '*' * 50
+
+
+
+# send_mail_check(dict_documents_for_send)
+
+# user_queryset = User.objects.filter(id__in=[250, 251, 2471])
+# for user in user_queryset:
+#    print 'start create document for user = %s' % user.id
+#    check_query = Check.objects.filter(created_by=user, year=now.year, month=now.month)
+#    if not check_query:
+#        number_check = Check.get_next_number(Check, now.year)
+#        check_obj = Check(created_by=user,
+#                          year=now.year,
+#                          month=now.month,
+#                          every_month=True,
+#                          created_at=now,
+#                          number=number_check,
+#                          findoc_id=1,
+#                          type_paid=1,)
+#        check_obj.save()
+#    act_query = Act.objects.filter(created_by=user, year=last_start_month.year, month=last_start_month.month)
+#    if not act_query:
+#        number_act = Act.get_next_number(Act, now.year)
+#        act_obj = Act(created_by=user,
+#                          year=last_start_month.year,
+#                          month=last_start_month.month,
+#                          every_month=True,
+#                          created_at=now,
+#                          number=number_act,
+#                          findoc_id=1,
+#                          type_paid=1,)
+#        act_obj.save()
+#        if user.id in (250,):
+#            number_act_temp = Act.get_next_number(Act, now.year)
+#            act_obj_copy = copy.copy(act_obj)
+#            act_obj_copy.id = None
+#            act_obj_copy.number = number_act_temp
+#            act_obj_copy.save()
+#    invoice_query = Invoice.objects.filter(created_by=user, year=last_start_month.year, month=last_start_month.month)
+#    if not invoice_query:
+#        number_invoice = Invoice.get_next_number(Invoice, now.year)
+#        invoice_obj = Invoice(created_by=user,
+#                          year=last_start_month.year,
+#                          month=last_start_month.month,
+#                          every_month=True,
+#                          created_at=now,
+#                          number=number_invoice,
+#                          findoc_id=1,
+#                          type_paid=1,)
+#        invoice_obj.save()
+#        if user.id in (250,):
+#            number_invoice_temp = Invoice.get_next_number(Invoice, now.year)
+#            invoice_obj_copy = copy.copy(invoice_obj)
+#            invoice_obj_copy.id = None
+#            invoice_obj_copy.number = number_invoice_temp
+#            invoice_obj_copy.save()
+#    print 'finish create document for user = %s' % user.id
+print 'end script at %s' % now
+

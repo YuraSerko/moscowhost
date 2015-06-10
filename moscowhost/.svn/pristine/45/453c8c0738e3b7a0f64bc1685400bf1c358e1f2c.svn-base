@@ -1,0 +1,52 @@
+#!/usr/bin/env python
+# coding: utf-8
+import datetime
+import  sys, os
+import psycopg2
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+from data_centr.models import Data_centr_payment, Zakazy
+from data_centr.views import write_off_of_money, compulsory_shutdown_of_service, block_service, add_text_message
+from billing.models import BillserviceAccount, BillservicePhoneTransaction
+from externalnumbers.models import ExternalNumber
+from findocs.models import Package_on_connection_of_service
+from telnumbers.models import TelNumbersZakazy, TelNumbersGroup
+from dateutil.relativedelta import relativedelta
+from django.db.models import Q
+from django.db import connections
+from django.core.mail import send_mail
+from settings import DEFAULT_FROM_EMAIL
+import log
+from settings import DATABASES
+
+print 'start script'
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['default'])
+conn2 = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur2 = conn2.cursor()
+
+cur2.execute("DELETE FROM billservice_prepaid_minutes WHERE zakaz_id IS NULL")
+cur2.connection.commit()
+
+spis_zakaz = []
+zakazy_queryset = Zakazy.objects.filter(service_type__id=3, status_zakaza__id__in=[2, 4]).order_by('id')
+print len(zakazy_queryset)
+for zakaz_obj in zakazy_queryset:
+    cur2.execute("SELECT * FROM billservice_prepaid_minutes WHERE zakaz_id = %s" % (zakaz_obj.id,))
+    cur2.connection.commit()
+    record_minutes = cur2.fetchall()
+    if record_minutes:
+        continue
+    else:
+        print 'create record for zakaz_id = %s' %  zakaz_obj.id
+        spis_zakaz.append(zakaz_obj.id)
+        free_minutes = zakaz_obj.tariff.free_minutes
+        if zakaz_obj.tariff.tel_zone:
+            cur2.execute("INSERT INTO billservice_prepaid_minutes(zone_id, minutes, account_id, service_id, date_of_accrual, zakaz_id) VALUES(%s, %s, %s, %s, now(), %s);", (zakaz_obj.tariff.tel_zone, free_minutes, zakaz_obj.bill_account.id, 0, zakaz_obj.id))
+            cur2.connection.commit()
+        else: 
+            print zakaz_obj.ext_numbers.all()[0]
+print 'end script'

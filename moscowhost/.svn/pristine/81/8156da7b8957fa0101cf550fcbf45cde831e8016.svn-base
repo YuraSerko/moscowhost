@@ -1,0 +1,213 @@
+#!/usr/bin/env python
+# coding: utf-8
+import  sys
+import datetime
+sys.path.append('../../')
+sys.path.append('../')
+from django.core.management import setup_environ
+from globalhome import settings
+setup_environ(settings)
+from globalhome.data_centr.models import Zakazy, Tariff, Price_connection, Status_zakaza, Service_type, OS, CPU, RAM, HDD
+from globalhome.data_centr.views import formation_check, send_mail_check, cost_dc
+from globalhome.account.models import Profile
+from globalhome.content.models import Check
+from globalhome.externalnumbers.models import ExternalNumber
+from globalhome.billing.models import BillserviceAccount
+from django.contrib.auth.models import User
+from django.db.models import Q
+import calendar
+import psycopg2
+from settings import DATABASES
+from dateutil.relativedelta import relativedelta
+
+conn = psycopg2.connect("dbname='%(NAME)s' user='%(USER)s' host='%(HOST)s' password='%(PASSWORD)s'" % DATABASES['billing'])
+cur = conn.cursor()
+cur.connection.set_isolation_level(1)
+cur.connection.commit()
+
+cur.execute("SELECT billservice_accountaddonservice.id, billservice_accountaddonservice.account_id, \
+billservice_accountaddonservice.numbers, billservice_accountaddonservice.activated, \
+billservice_accountaddonservice.service_id, external_numbers_tarif.price_abon \
+FROM billservice_accountaddonservice, external_numbers_tarif \
+WHERE external_numbers_tarif.id IN(SELECT tarif_group FROM external_numbers WHERE \
+external_numbers.number=billservice_accountaddonservice.numbers) and billservice_accountaddonservice.deactivated IS NULL and \
+billservice_accountaddonservice.numbers IS NOT NULL ORDER by account_id")
+number_for_rewrite = cur.fetchall()
+cur.execute("SELECT id, service_id, account_id, activated FROM billservice_accountaddonservice \
+WHERE deactivated IS NULL and numbers IS NULL and service_id IN (9,10,11,12) ORDER BY id; ")
+arenda_for_rewrite = cur.fetchall()
+
+try:
+    for record in number_for_rewrite:
+        id, account_id, number, date_activate, service_id, price_abon = record
+        bac = BillserviceAccount.objects.get(id=account_id)
+        status_obj = Status_zakaza.objects.get(id=2)
+        service_type_obj = Service_type.objects.get(id=3)
+        os_obj = OS.objects.get(id=1)
+        cpu_obj = CPU.objects.get(id=1)
+        ram_obj = RAM.objects.get(id=1)
+        hdd_obj = HDD.objects.get(id=1)
+        if service_id == price_abon:
+            print "iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiif"
+            cur.execute("SELECT tarif_group FROM external_numbers WHERE number = %s", (number,))
+            id_tarif = str(cur.fetchone()[0])
+            tariff_obj = ''
+            connection_cost = ''
+            if id_tarif == '1':
+                tariff_obj = Tariff.objects.get(id=3)
+                connection_cost = Price_connection.objects.get(id=2)
+            if id_tarif == '2':
+                tariff_obj = Tariff.objects.get(id=6)
+                connection_cost = Price_connection.objects.get(id=5)
+            if id_tarif == '3':
+                tariff_obj = Tariff.objects.get(id=9)
+                connection_cost = Price_connection.objects.get(id=8)
+            if id_tarif == '5':
+                tariff_obj = Tariff.objects.get(id=4)
+                connection_cost = Price_connection.objects.get(id=3)
+            if id_tarif == '6':
+                tariff_obj = Tariff.objects.get(id=5)
+                connection_cost = Price_connection.objects.get(id=4)
+            if id_tarif == '7':
+                tariff_obj = Tariff.objects.get(id=10)
+                connection_cost = Price_connection.objects.get(id=9)
+            if id_tarif == '8':
+                tariff_obj = Tariff.objects.get(id=11)
+                connection_cost = Price_connection.objects.get(id=10)
+            if id_tarif == '9':
+                tariff_obj = Tariff.objects.get(id=7)
+                connection_cost = Price_connection.objects.get(id=6)
+            if id_tarif == '10':
+                tariff_obj = Tariff.objects.get(id=8)
+                connection_cost = Price_connection.objects.get(id=7)
+            zakaz = Zakazy(
+                         bill_account=bac,
+                         section_type=1,
+                         status_zakaza=status_obj,
+                         service_type=service_type_obj,
+                         tariff=tariff_obj,
+                         connection_cost = connection_cost,
+                         date_create = date_activate,
+                         date_activation = date_activate,
+                         os=os_obj,
+                         cpu=cpu_obj,
+                         ram=ram_obj,
+                         hdd=hdd_obj,
+                         )
+            zakaz.save()
+            external_number_obj = ExternalNumber.objects.get(number=number)
+            zakaz.ext_numbers.add(external_number_obj)
+            cost = float(cost_dc(zakaz.id))
+            zakaz.cost = '%.2f' % cost
+            zakaz.save()
+        else:
+            print "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeelse"
+            cur.execute("SELECT cost FROM billservice_addonservice WHERE id=%s", (service_id,))
+            cost_service_id = cur.fetchone()[0]
+            j = 0
+            for i in range(3, 13):
+                print "I: %s" % i
+                tariff_obj = Tariff.objects.get(id=i)
+                print "tariff_obj.price_id.cost: %s" % tariff_obj.price_id.cost
+                print "cost_service_id: %s" % cost_service_id
+                if float(tariff_obj.price_id.cost) == float(cost_service_id):
+                    j = i - 1
+                    print "j1 :%s" % j
+                    break
+            print "j : %s" % j
+            connection_cost = Price_connection.objects.get(id=j)
+            zakaz = Zakazy(
+                         bill_account=bac,
+                         section_type=1,
+                         status_zakaza=status_obj,
+                         service_type=service_type_obj,
+                         tariff=tariff_obj,
+                         connection_cost = connection_cost,
+                         date_create = date_activate,
+                         date_activation = date_activate,
+                         os=os_obj,
+                         cpu=cpu_obj,
+                         ram=ram_obj,
+                         hdd=hdd_obj,
+                         about=u'Старый номер, добавлен по индивидуальному тарифу',
+                         )
+            zakaz.save()
+            external_number_obj = ExternalNumber.objects.get(number=number)
+            print "6"
+            zakaz.ext_numbers.add(external_number_obj)
+            print "7"
+            cost = float(cost_dc(zakaz.id))
+            zakaz.cost = '%.2f' % cost
+            zakaz.save()
+        profile_obj = Profile.objects.get(billing_account_id=bac.id)
+        print "9"
+        external_number_obj = ExternalNumber.objects.get(number=number)
+        external_number_obj.auth_user = profile_obj.user.id
+        external_number_obj.save()
+        print "11"
+        cur.execute("UPDATE billservice_prepaid_minutes SET zakaz_id=%s, service_id=%s WHERE service_id=%s;", (zakaz.id, 0, id,))
+        now = datetime.datetime.now()
+        date_next_start_month_temp = now + relativedelta(months=1)
+        date_next_start_month = datetime.datetime(date_next_start_month_temp.year, date_next_start_month_temp.month, 1, 23, 59, 59)
+        date_end_now_month = date_next_start_month - relativedelta(days=1)
+        cur.execute("UPDATE billservice_accountaddonservice SET action_status=%s, deactivated=%s WHERE id=%s", (False, date_end_now_month, id,))
+        print "ky-ky"
+    #перенос аренды оборудования в data_centr_zakazy
+    for arenda in arenda_for_rewrite:
+        id, service_id, account_id, activated = arenda
+        bac = BillserviceAccount.objects.get(id=account_id)
+        status_obj = Status_zakaza.objects.get(id=2)
+        connection_cost = Price_connection.objects.get(id=1)
+        os_obj = OS.objects.get(id=1)
+        cpu_obj = CPU.objects.get(id=1)
+        ram_obj = RAM.objects.get(id=1)
+        hdd_obj = HDD.objects.get(id=1)
+        print "id: %s"%id
+        print "service_id: %s"%service_id
+        if str(service_id) == '9':
+            tariff_obj = Tariff.objects.get(id=13)
+            service_type_obj = Service_type.objects.get(id=4)
+        if str(service_id) == '10':
+            tariff_obj = Tariff.objects.get(id=14)
+            service_type_obj = Service_type.objects.get(id=5)
+        if str(service_id) == '11':
+            tariff_obj = Tariff.objects.get(id=15)
+            service_type_obj = Service_type.objects.get(id=6)
+        if str(service_id) == '12':
+            tariff_obj = Tariff.objects.get(id=16)
+            service_type_obj = Service_type.objects.get(id=7)
+        zakaz = Zakazy(
+                         bill_account=bac,
+                         section_type=1,
+                         status_zakaza=status_obj,
+                         service_type=service_type_obj,
+                         tariff=tariff_obj,
+                         connection_cost = connection_cost,
+                         date_create = activated,
+                         date_activation = activated,
+                         os=os_obj,
+                         cpu=cpu_obj,
+                         ram=ram_obj,
+                         hdd=hdd_obj,
+                         )
+        zakaz.save()
+        cost = float(cost_dc(zakaz.id))
+        zakaz.cost = '%.2f' % cost
+        zakaz.save()
+        now = datetime.datetime.now()
+        date_next_start_month_temp = now + relativedelta(months=1)
+        date_next_start_month = datetime.datetime(date_next_start_month_temp.year, date_next_start_month_temp.month, 1, 23, 59, 59)
+        date_end_now_month = date_next_start_month - relativedelta(days=1)
+        cur.execute("UPDATE billservice_accountaddonservice SET action_status=%s, deactivated=%s WHERE id=%s", (False, date_end_now_month, id,))
+        print "add zakaz №%s"%zakaz.id
+except Exception, e:
+    print e
+    cur.connection.rollback()
+else:
+    cur.connection.commit()
+print "vse"
+
+
+
+
+

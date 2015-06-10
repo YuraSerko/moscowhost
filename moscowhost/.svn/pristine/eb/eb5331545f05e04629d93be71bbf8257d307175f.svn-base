@@ -1,0 +1,51 @@
+# coding: utf-8
+import sys, os
+import time
+from grab import Grab
+from lxml import html
+import urllib2, urllib, cookielib
+from BeautifulSoup import BeautifulSoup
+import logging
+import re
+import trans
+import traceback
+
+
+
+# from beeline import converse_str_to_int, ExceptionPageDontAvalaible, ExceptionChangeLocationOfTags, ExceptionIncorrectData
+
+print 'BEGIN'
+
+sys.path[0] = '../'
+os.environ['DJANGO_SETTINGS_MODULE'] = 'settings_globalhome'
+from grab import Grab
+from hotspot.models import Video
+from hotspot.models import VideoGenre
+import datetime
+
+
+all_o = Video.objects.all()
+
+for i, a_o in enumerate(all_o):
+    #===========================================================================
+    # if a_o.title != '':
+    #     ob = Video.objects.filter(title=a_o.title)
+    # else:
+    #     ob = Video.objects.filter(orig_title=a_o.orig_title)
+    # if ob.count() > 1:
+    #     for o in ob[1:]:
+    #         print 'delete 1 %s' % o.title
+    #         #o.delete()
+    #===========================================================================
+    #===========================================================================
+    ob2 = Video.objects.filter(player_video_url=a_o.player_video_url) # Удаление дубликатов по совпадению ссылок на видео
+    #===========================================================================
+    #print str(i), a_o.id , str(a_o.title.encode('utf-8')) , str(a_o.orig_title.encode('utf-8'))
+    #a_o.translit_video_name = a_o.translit_video_name.strip()
+    #a_o.save()
+    #ob2 = Video.objects.filter(translit_video_name__exact=a_o.translit_video_name ) # del dublicat in translit_video_name
+    print i
+    if ob2.count() > 1:
+        for o in ob2[1:]:
+            print 'delete 2 ' , o.title , o.orig_title
+            o.delete()
